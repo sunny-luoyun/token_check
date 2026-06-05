@@ -10,7 +10,15 @@ class DailyTrendViewModel: ObservableObject {
         case monthly = "按月"
     }
 
+    enum MetricType: String, CaseIterable {
+        case total = "总 Tokens"
+        case input = "输入（未命中）"
+        case cacheHit = "缓存命中"
+        case output = "输出"
+    }
+
     @Published var timeMode: TimeMode = .last30
+    @Published var selectedMetric: MetricType = .total
     @Published var selectedYear: String? = {
         String(Calendar.current.component(.year, from: Date()))
     }()
@@ -140,7 +148,8 @@ class DailyTrendViewModel: ObservableObject {
                         variant: variant,
                         totalTokens: 0,
                         inputTokens: 0,
-                        outputTokens: 0
+                        outputTokens: 0,
+                        cacheReadTokens: 0
                     ))
                 }
             }

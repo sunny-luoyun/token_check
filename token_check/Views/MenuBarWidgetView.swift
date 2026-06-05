@@ -54,6 +54,8 @@ struct MenuBarWidgetView: View {
             HStack(spacing: 0) {
                 statItem("输入", formatTokens(usage.inputTokens), .blue)
                 Spacer()
+                statItem("缓存", formatTokens(usage.cacheReadTokens), .purple)
+                Spacer()
                 statItem("输出", formatTokens(usage.outputTokens), .green)
                 Spacer()
                 statItem("会话", "\(usage.sessionCount)", .orange)

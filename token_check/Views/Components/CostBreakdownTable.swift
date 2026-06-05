@@ -17,7 +17,7 @@ struct CostBreakdownTable: View {
             }
             .width(60)
 
-            TableColumn("缓存未命中") { item in
+            TableColumn("输入（未命中）") { item in
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(formatTokens(item.cacheMissTokens))
                         .font(.caption.monospaced())

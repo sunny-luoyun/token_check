@@ -11,6 +11,7 @@ struct TodayUsage {
     let totalTokens: Int
     let inputTokens: Int
     let outputTokens: Int
+    let cacheReadTokens: Int
     let sessionCount: Int
     let dailyTokens: [DayTokenData]
 }
@@ -27,9 +28,10 @@ final class WidgetDataService {
         let dailyTokens = fillMissingDays(fetchDailyTokens(db, sevenDaysAgo) ?? [], since: sevenDaysAgo)
 
         return TodayUsage(
-            totalTokens: todayRow.input + todayRow.output,
+            totalTokens: todayRow.input + todayRow.cacheRead + todayRow.output,
             inputTokens: todayRow.input,
             outputTokens: todayRow.output,
+            cacheReadTokens: todayRow.cacheRead,
             sessionCount: todayRow.sessions,
             dailyTokens: dailyTokens
         )
@@ -58,10 +60,11 @@ final class WidgetDataService {
         return result
     }
 
-    private func fetchTodayRow(_ db: OpaquePointer, _ cutoff: Int64) -> (input: Int, output: Int, sessions: Int)? {
+    private func fetchTodayRow(_ db: OpaquePointer, _ cutoff: Int64) -> (input: Int, output: Int, cacheRead: Int, sessions: Int)? {
         let sql = """
             SELECT COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_output), 0),
+                   COALESCE(SUM(tokens_cache_read), 0),
                    COUNT(*)
             FROM session
             WHERE time_created > ?
@@ -73,13 +76,13 @@ final class WidgetDataService {
         sqlite3_bind_int64(stmt, 1, cutoff)
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return (int(stmt, 0), int(stmt, 1), int(stmt, 2))
+        return (int(stmt, 0), int(stmt, 1), int(stmt, 2), int(stmt, 3))
     }
 
     private func fetchDailyTokens(_ db: OpaquePointer, _ cutoff: Int64) -> [DayTokenData]? {
         let sql = """
-            SELECT date(datetime(time_created / 1000, 'unixepoch')) AS day,
-                   COALESCE(SUM(tokens_input + tokens_output), 0) AS total
+            SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
+                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output), 0) AS total
             FROM session
             WHERE time_created > ?
             GROUP BY day

@@ -82,7 +82,7 @@ struct CostDashboardView: View {
                 color: .red
             )
             StatCardView(
-                title: "缓存未命中",
+                title: "输入（未命中）",
                 value: formatTokens(summary.totalMissTokens),
                 subtitle: formatCost(summary.missCost),
                 icon: "arrowtriangle.down.circle.fill",
@@ -120,7 +120,7 @@ struct CostDashboardView: View {
             Text("费用说明: ")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("缓存未命中 ¥1/百万token")
+            Text("输入（未命中） ¥1/百万token")
                 .font(.caption2)
                 .foregroundStyle(.orange)
             Text("·")

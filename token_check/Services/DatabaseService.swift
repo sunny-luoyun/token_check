@@ -99,7 +99,7 @@ final class DatabaseService {
         let cutoff = Date.now.timeIntervalSince1970 * 1000 - Double(days) * 86_400 * 1000
         return try readAll(
             """
-            SELECT date(datetime(time_created / 1000, 'unixepoch')) AS day,
+            SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
                    COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_output), 0),
                    COALESCE(SUM(tokens_input + tokens_output), 0)
@@ -128,13 +128,13 @@ final class DatabaseService {
         var whereClause = ""
         var params: [Any] = []
         if let year, let month, let day {
-            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ? AND strftime('%d', datetime(time_created / 1000, 'unixepoch')) = ?"
+            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ? AND strftime('%d', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?"
             params = [year, month, day]
         } else if let year, let month {
-            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ?"
+            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?"
             params = [year, month]
         } else if let year {
-            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ?"
+            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?"
             params = [year]
         } else {
             let cutoff = Date.now.timeIntervalSince1970 * 1000 - Double(days) * 86_400 * 1000
@@ -143,12 +143,13 @@ final class DatabaseService {
         }
         return try readAll(
             """
-            SELECT date(datetime(time_created / 1000, 'unixepoch')) AS day,
+            SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
                    json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COALESCE(SUM(tokens_input), 0),
+                   COALESCE(SUM(tokens_cache_read), 0),
                    COALESCE(SUM(tokens_output), 0),
-                   COALESCE(SUM(tokens_input + tokens_output), 0)
+                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output), 0)
             FROM session
             \(whereClause)
             GROUP BY day, model_id, variant
@@ -167,9 +168,10 @@ final class DatabaseService {
                 date: date,
                 modelId: mid,
                 variant: variant,
-                totalTokens: int(stmt, 5),
+                totalTokens: int(stmt, 6),
                 inputTokens: int(stmt, 3),
-                outputTokens: int(stmt, 4)
+                outputTokens: int(stmt, 5),
+                cacheReadTokens: int(stmt, 4)
             )
         }
     }
@@ -178,8 +180,8 @@ final class DatabaseService {
         try readAll(
             """
             SELECT DISTINCT
-                strftime('%Y', datetime(time_created / 1000, 'unixepoch')) AS year,
-                strftime('%m', datetime(time_created / 1000, 'unixepoch')) AS month
+                strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) AS year,
+                strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) AS month
             FROM session
             ORDER BY year DESC, month DESC
             """
@@ -191,10 +193,10 @@ final class DatabaseService {
     func fetchAvailableDays(year: String, month: String) throws -> [String] {
         try readAll(
             """
-            SELECT DISTINCT strftime('%d', datetime(time_created / 1000, 'unixepoch'))
+            SELECT DISTINCT strftime('%d', datetime(time_created / 1000, 'unixepoch', 'localtime'))
             FROM session
-            WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ?
-              AND strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ?
+            WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?
+              AND strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?
             ORDER BY 1
             """,
             parameters: [year, month]
@@ -209,10 +211,10 @@ final class DatabaseService {
             SELECT json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COUNT(*) AS sessions,
-                   COALESCE(SUM(MAX(tokens_input - tokens_cache_read, 0)), 0) AS miss,
-                   COALESCE(SUM(tokens_cache_read), 0) AS hit,
-                   COALESCE(SUM(tokens_output), 0) AS output,
-                   COALESCE(SUM(tokens_reasoning), 0) AS reasoning
+                    COALESCE(SUM(tokens_input), 0) AS miss,
+                    COALESCE(SUM(tokens_cache_read), 0) AS hit,
+                    COALESCE(SUM(tokens_output), 0) AS output,
+                    COALESCE(SUM(tokens_reasoning), 0) AS reasoning
             FROM session
             \(timeWhereClause(year: year, month: month, day: day))
             GROUP BY model_id, variant
@@ -236,7 +238,7 @@ final class DatabaseService {
     func fetchCostSummary(year: String? = nil, month: String? = nil, day: String? = nil) throws -> CostSummary {
         try readOne(
             """
-            SELECT COALESCE(SUM(MAX(tokens_input - tokens_cache_read, 0)), 0),
+            SELECT COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_cache_read), 0),
                    COALESCE(SUM(tokens_output), 0),
                    COALESCE(SUM(tokens_reasoning), 0),
@@ -297,13 +299,13 @@ final class DatabaseService {
     private func timeWhereClause(year: String?, month: String?, day: String?) -> String {
         var clauses: [String] = []
         if year != nil {
-            clauses.append("strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ?")
+            clauses.append("strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?")
         }
         if month != nil {
-            clauses.append("strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ?")
+            clauses.append("strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?")
         }
         if day != nil {
-            clauses.append("strftime('%d', datetime(time_created / 1000, 'unixepoch')) = ?")
+            clauses.append("strftime('%d', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?")
         }
         if clauses.isEmpty { return "" }
         return "WHERE " + clauses.joined(separator: " AND ")

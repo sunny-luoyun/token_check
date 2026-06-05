@@ -39,6 +39,9 @@ struct DailyTrendView: View {
                         .padding(.bottom, 8)
                 }
 
+                metricFilterBar
+                    .padding(.horizontal)
+
                 chartSection
                     .padding(.horizontal)
 
@@ -82,6 +85,20 @@ struct DailyTrendView: View {
         }
     }
 
+    private var metricFilterBar: some View {
+        HStack {
+            Spacer()
+            Picker("指标", selection: $viewModel.selectedMetric) {
+                ForEach(DailyTrendViewModel.MetricType.allCases, id: \.self) { metric in
+                    Text(metric.rawValue).tag(metric)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 480)
+            Spacer()
+        }
+    }
+
     private var monthFilterBar: some View {
         HStack {
             Spacer()
@@ -110,26 +127,28 @@ struct DailyTrendView: View {
                 (model, modelColors[i % modelColors.count])
             })
 
+            let metricValue: (DailyModelUsage) -> Int = {
+                switch viewModel.selectedMetric {
+                case .total: return $0.totalTokens
+                case .input: return $0.inputTokens
+                case .cacheHit: return $0.cacheReadTokens
+                case .output: return $0.outputTokens
+                }
+            }
+
             Chart(viewModel.filteredData) { item in
                 LineMark(
                     x: .value("日期", item.date),
-                    y: .value("Tokens", item.totalTokens)
+                    y: .value("Tokens", metricValue(item))
                 )
                 .foregroundStyle(by: .value("Model", item.displayName))
 
                 PointMark(
                     x: .value("日期", item.date),
-                    y: .value("Tokens", item.totalTokens)
+                    y: .value("Tokens", metricValue(item))
                 )
                 .foregroundStyle(by: .value("Model", item.displayName))
                 .symbolSize(20)
-
-                AreaMark(
-                    x: .value("日期", item.date),
-                    y: .value("Tokens", item.totalTokens)
-                )
-                .foregroundStyle(by: .value("Model", item.displayName))
-                .opacity(0.1)
             }
             .chartForegroundStyleScale { modelName in
                 colorMap[modelName] ?? .gray
