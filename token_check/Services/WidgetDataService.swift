@@ -14,6 +14,12 @@ struct TodayUsage {
     let cacheReadTokens: Int
     let sessionCount: Int
     let dailyTokens: [DayTokenData]
+
+    var todayCost: Double {
+        Double(inputTokens) / 1_000_000 * 1.0
+            + Double(cacheReadTokens) / 1_000_000 * 0.02
+            + Double(outputTokens) / 1_000_000 * 2.0
+    }
 }
 
 final class WidgetDataService {

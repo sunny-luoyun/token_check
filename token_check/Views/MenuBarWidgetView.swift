@@ -4,7 +4,8 @@ import Combine
 
 struct MenuBarWidgetView: View {
     @ObservedObject var model: TokenViewModel
-    private let timer = Timer.publish(every: 300, on: .main, in: .common).autoconnect()
+    @AppStorage("refreshMinutes") private var refreshMinutes = 5
+    @State private var timerCancellable: AnyCancellable?
 
     private var total7Day: Int {
         model.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
@@ -35,8 +36,16 @@ struct MenuBarWidgetView: View {
         }
         .padding(16)
         .frame(width: 280)
-        .onAppear { model.refresh() }
-        .onReceive(timer) { _ in model.refresh() }
+        .onAppear {
+            model.refresh()
+            startRefreshTimer()
+        }
+        .onDisappear {
+            timerCancellable?.cancel()
+        }
+        .onChange(of: refreshMinutes) { _ in
+            startRefreshTimer()
+        }
     }
 
     private func todaySection(_ usage: TodayUsage) -> some View {
@@ -47,8 +56,13 @@ struct MenuBarWidgetView: View {
                 Text("今日用量")
                     .font(.headline)
                 Spacer()
-                Text(formatTokens(usage.totalTokens))
-                    .font(.title2.monospaced().bold())
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(formatTokens(usage.totalTokens))
+                        .font(.title2.monospaced().bold())
+                    Text(formatCost(usage.todayCost))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
             }
 
             HStack(spacing: 0) {
@@ -103,6 +117,18 @@ struct MenuBarWidgetView: View {
                 .frame(height: 80)
             }
         }
+    }
+
+    private func startRefreshTimer() {
+        timerCancellable?.cancel()
+        let interval = max(TimeInterval(refreshMinutes), 1) * 60
+        timerCancellable = Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak model] _ in model?.refresh() }
+    }
+
+    private func formatCost(_ c: Double) -> String {
+        String(format: "¥%.2f", c)
     }
 
     private func formatTokens(_ n: Int) -> String {
