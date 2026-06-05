@@ -124,10 +124,13 @@ final class DatabaseService {
         }
     }
 
-    func fetchDailyUsageByModel(days: Int = 30, year: String? = nil, month: String? = nil) throws -> [DailyModelUsage] {
+    func fetchDailyUsageByModel(days: Int = 30, year: String? = nil, month: String? = nil, day: String? = nil) throws -> [DailyModelUsage] {
         var whereClause = ""
         var params: [Any] = []
-        if let year, let month {
+        if let year, let month, let day {
+            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ? AND strftime('%d', datetime(time_created / 1000, 'unixepoch')) = ?"
+            params = [year, month, day]
+        } else if let year, let month {
             whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ?"
             params = [year, month]
         } else if let year {
@@ -185,7 +188,22 @@ final class DatabaseService {
         }
     }
 
-    func fetchModelCostBreakdown(year: String? = nil, month: String? = nil) throws -> [ModelCostBreakdown] {
+    func fetchAvailableDays(year: String, month: String) throws -> [String] {
+        try readAll(
+            """
+            SELECT DISTINCT strftime('%d', datetime(time_created / 1000, 'unixepoch'))
+            FROM session
+            WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ?
+              AND strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ?
+            ORDER BY 1
+            """,
+            parameters: [year, month]
+        ) { stmt in
+            text(stmt, 0) ?? ""
+        }
+    }
+
+    func fetchModelCostBreakdown(year: String? = nil, month: String? = nil, day: String? = nil) throws -> [ModelCostBreakdown] {
         try readAll(
             """
             SELECT json_extract(model, '$.id') AS model_id,
@@ -196,11 +214,11 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_output), 0) AS output,
                    COALESCE(SUM(tokens_reasoning), 0) AS reasoning
             FROM session
-            \(timeWhereClause(year: year, month: month))
+            \(timeWhereClause(year: year, month: month, day: day))
             GROUP BY model_id, variant
             ORDER BY SUM(tokens_input) DESC
             """,
-            parameters: timeParams(year: year, month: month)
+            parameters: timeParams(year: year, month: month, day: day)
         ) { stmt in
             ModelCostBreakdown(
                 id: "\(text(stmt, 0) ?? "unknown")/\(text(stmt, 1) ?? "default")",
@@ -215,7 +233,7 @@ final class DatabaseService {
         }
     }
 
-    func fetchCostSummary(year: String? = nil, month: String? = nil) throws -> CostSummary {
+    func fetchCostSummary(year: String? = nil, month: String? = nil, day: String? = nil) throws -> CostSummary {
         try readOne(
             """
             SELECT COALESCE(SUM(MAX(tokens_input - tokens_cache_read, 0)), 0),
@@ -224,9 +242,9 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_reasoning), 0),
                    COUNT(*)
             FROM session
-            \(timeWhereClause(year: year, month: month))
+            \(timeWhereClause(year: year, month: month, day: day))
             """,
-            parameters: timeParams(year: year, month: month)
+            parameters: timeParams(year: year, month: month, day: day)
         ) { stmt in
             CostSummary(
                 totalMissTokens: int(stmt, 0),
@@ -238,7 +256,7 @@ final class DatabaseService {
         }
     }
 
-    func fetchSessions(year: String? = nil, month: String? = nil, limit: Int = 100, offset: Int = 0) throws -> [Session] {
+    func fetchSessions(year: String? = nil, month: String? = nil, day: String? = nil, limit: Int = 100, offset: Int = 0) throws -> [Session] {
         try readAll(
             """
             SELECT id, slug, title,
@@ -247,11 +265,11 @@ final class DatabaseService {
                    cost, model, time_created,
                    json_extract(metadata, '$.project') AS project
             FROM session
-            \(timeWhereClause(year: year, month: month))
+            \(timeWhereClause(year: year, month: month, day: day))
             ORDER BY time_created DESC
             LIMIT ? OFFSET ?
             """,
-            parameters: timeParams(year: year, month: month) + [Int64(limit), Int64(offset)]
+            parameters: timeParams(year: year, month: month, day: day) + [Int64(limit), Int64(offset)]
         ) { stmt in
             let modelJSON = text(stmt, 9) ?? "{}"
             let modelData = modelJSON.data(using: .utf8)
@@ -276,7 +294,7 @@ final class DatabaseService {
 
     // MARK: - Time Filter Helpers
 
-    private func timeWhereClause(year: String?, month: String?) -> String {
+    private func timeWhereClause(year: String?, month: String?, day: String?) -> String {
         var clauses: [String] = []
         if year != nil {
             clauses.append("strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ?")
@@ -284,14 +302,18 @@ final class DatabaseService {
         if month != nil {
             clauses.append("strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ?")
         }
+        if day != nil {
+            clauses.append("strftime('%d', datetime(time_created / 1000, 'unixepoch')) = ?")
+        }
         if clauses.isEmpty { return "" }
         return "WHERE " + clauses.joined(separator: " AND ")
     }
 
-    private func timeParams(year: String?, month: String?) -> [Any] {
+    private func timeParams(year: String?, month: String?, day: String?) -> [Any] {
         var params: [Any] = []
         if let year { params.append(year) }
         if let month { params.append(month) }
+        if let day { params.append(day) }
         return params
     }
 

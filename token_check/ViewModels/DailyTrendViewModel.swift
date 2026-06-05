@@ -11,8 +11,16 @@ class DailyTrendViewModel: ObservableObject {
     }
 
     @Published var timeMode: TimeMode = .last30
-    @Published var selectedYear: String?
-    @Published var selectedMonth: String?
+    @Published var selectedYear: String? = {
+        String(Calendar.current.component(.year, from: Date()))
+    }()
+    @Published var selectedMonth: String? = {
+        String(format: "%02d", Calendar.current.component(.month, from: Date()))
+    }()
+    @Published var selectedDay: String? = {
+        String(format: "%02d", Calendar.current.component(.day, from: Date()))
+    }()
+    @Published var availableDays: [String] = []
     @Published var periods: [TimePeriod] = []
     @Published var dailyData: [DailyModelUsage] = []
     @Published var selectedModels: Set<String> = []
@@ -53,10 +61,7 @@ class DailyTrendViewModel: ObservableObject {
         return ["全部"] + months.sorted()
     }
 
-    private var needsReload = true
-
     func load() {
-        guard needsReload else { return }
         isLoading = true
         error = nil
 
@@ -67,19 +72,26 @@ class DailyTrendViewModel: ObservableObject {
                 let periods = try service.fetchAvailablePeriods()
                 let data: [DailyModelUsage]
                 if self.isMonthlyMode {
-                    data = try service.fetchDailyUsageByModel(year: self.selectedYear, month: self.selectedMonth)
+                    data = try service.fetchDailyUsageByModel(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                 } else {
                     data = try service.fetchDailyUsageByModel(days: self.days)
                 }
 
+                var days: [String] = []
+                if self.isMonthlyMode, let year = self.selectedYear, let month = self.selectedMonth {
+                    days = try service.fetchAvailableDays(year: year, month: month)
+                }
+
+                let filledData = self.isMonthlyMode ? data : self.fillMissingDays(data, days: self.days)
+
                 DispatchQueue.main.async {
                     self.periods = periods
-                    self.dailyData = data
+                    self.dailyData = filledData
+                    self.availableDays = ["全部"] + days
                     if self.selectedModels.isEmpty {
-                        self.selectedModels = Set(data.map(\.displayName))
+                        self.selectedModels = Set(filledData.map(\.displayName))
                     }
                     self.isLoading = false
-                    self.needsReload = false
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -91,7 +103,48 @@ class DailyTrendViewModel: ObservableObject {
     }
 
     func applyFilter() {
-        needsReload = true
         load()
+    }
+
+    private func fillMissingDays(_ data: [DailyModelUsage], days: Int) -> [DailyModelUsage] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        guard let startDate = cal.date(byAdding: .day, value: -(days - 1), to: today) else { return data }
+
+        let allModels = Set(data.map { "\($0.modelId)\t\($0.variant)" })
+        let lookup = Dictionary(uniqueKeysWithValues: data.map {
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+            return ("\(df.string(from: $0.date))\t\($0.modelId)\t\($0.variant)", $0)
+        })
+
+        var result: [DailyModelUsage] = []
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+
+        for i in 0..<days {
+            guard let date = cal.date(byAdding: .day, value: i, to: startDate) else { continue }
+            let dateStr = df.string(from: date)
+            for key in allModels {
+                let parts = key.split(separator: "\t", maxSplits: 1)
+                let modelId = String(parts[0])
+                let variant = parts.count > 1 ? String(parts[1]) : "default"
+                let lookupKey = "\(dateStr)\t\(modelId)\t\(variant)"
+                if let item = lookup[lookupKey] {
+                    result.append(item)
+                } else {
+                    result.append(DailyModelUsage(
+                        id: "\(dateStr)/\(modelId)/\(variant)",
+                        date: date,
+                        modelId: modelId,
+                        variant: variant,
+                        totalTokens: 0,
+                        inputTokens: 0,
+                        outputTokens: 0
+                    ))
+                }
+            }
+        }
+        return result.sorted { $0.date < $1.date }
     }
 }

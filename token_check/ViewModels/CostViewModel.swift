@@ -5,8 +5,16 @@ class CostViewModel: ObservableObject {
     @Published var summary: CostSummary?
     @Published var modelBreakdown: [ModelCostBreakdown] = []
     @Published var periods: [TimePeriod] = []
-    @Published var selectedYear: String?
-    @Published var selectedMonth: String?
+    @Published var selectedYear: String? = {
+        String(Calendar.current.component(.year, from: Date()))
+    }()
+    @Published var selectedMonth: String? = {
+        String(format: "%02d", Calendar.current.component(.month, from: Date()))
+    }()
+    @Published var selectedDay: String? = {
+        String(format: "%02d", Calendar.current.component(.day, from: Date()))
+    }()
+    @Published var availableDays: [String] = []
     @Published var isLoading = false
     @Published var error: String?
 
@@ -21,11 +29,7 @@ class CostViewModel: ObservableObject {
         return ["全部"] + months.sorted()
     }
 
-    private var lastLoad: (years: [String]?, months: [String]?)?
-    private var needsReload = true
-
     func load() {
-        guard needsReload || periods.isEmpty else { return }
         isLoading = true
         error = nil
 
@@ -34,15 +38,20 @@ class CostViewModel: ObservableObject {
             do {
                 let service = try DatabaseService()
                 let periods = try service.fetchAvailablePeriods()
-                let summary = try service.fetchCostSummary(year: self.selectedYear, month: self.selectedMonth)
-                let breakdown = try service.fetchModelCostBreakdown(year: self.selectedYear, month: self.selectedMonth)
+                let summary = try service.fetchCostSummary(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
+                let breakdown = try service.fetchModelCostBreakdown(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
+
+                var days: [String] = []
+                if let year = self.selectedYear, let month = self.selectedMonth {
+                    days = try service.fetchAvailableDays(year: year, month: month)
+                }
 
                 DispatchQueue.main.async {
                     self.periods = periods
                     self.summary = summary
                     self.modelBreakdown = breakdown
+                    self.availableDays = ["全部"] + days
                     self.isLoading = false
-                    self.needsReload = false
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -54,7 +63,6 @@ class CostViewModel: ObservableObject {
     }
 
     func applyFilter() {
-        needsReload = true
         load()
     }
 }

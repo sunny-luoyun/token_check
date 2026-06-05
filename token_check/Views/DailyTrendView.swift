@@ -88,8 +88,10 @@ struct DailyTrendView: View {
             TimeFilterView(
                 years: viewModel.availableYears,
                 months: viewModel.availableMonths,
+                days: viewModel.availableDays,
                 selectedYear: $viewModel.selectedYear,
                 selectedMonth: $viewModel.selectedMonth,
+                selectedDay: $viewModel.selectedDay,
                 onChange: { viewModel.applyFilter() }
             )
             Spacer()
@@ -114,6 +116,13 @@ struct DailyTrendView: View {
                     y: .value("Tokens", item.totalTokens)
                 )
                 .foregroundStyle(by: .value("Model", item.displayName))
+
+                PointMark(
+                    x: .value("日期", item.date),
+                    y: .value("Tokens", item.totalTokens)
+                )
+                .foregroundStyle(by: .value("Model", item.displayName))
+                .symbolSize(20)
 
                 AreaMark(
                     x: .value("日期", item.date),

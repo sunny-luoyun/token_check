@@ -24,7 +24,7 @@ final class WidgetDataService {
         let sevenDaysAgo = todayStart - 6 * 86_400 * 1000
 
         guard let todayRow = fetchTodayRow(db, todayStart) else { return nil }
-        let dailyTokens = fetchDailyTokens(db, sevenDaysAgo) ?? []
+        let dailyTokens = fillMissingDays(fetchDailyTokens(db, sevenDaysAgo) ?? [], since: sevenDaysAgo)
 
         return TodayUsage(
             totalTokens: todayRow.input + todayRow.output,
@@ -33,6 +33,29 @@ final class WidgetDataService {
             sessionCount: todayRow.sessions,
             dailyTokens: dailyTokens
         )
+    }
+
+    private func fillMissingDays(_ tokens: [DayTokenData], since cutoffMs: Int64) -> [DayTokenData] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let cutoffDate = Date(timeIntervalSince1970: TimeInterval(cutoffMs) / 1000)
+        let dayCount = cal.dateComponents([.day], from: cutoffDate, to: today).day! + 1
+
+        let existing = Dictionary(uniqueKeysWithValues: tokens.map { (cal.startOfDay(for: $0.date), $0) })
+        var result: [DayTokenData] = []
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+
+        for i in 0..<dayCount {
+            guard let date = cal.date(byAdding: .day, value: i, to: cutoffDate) else { continue }
+            let start = cal.startOfDay(for: date)
+            if let item = existing[start] {
+                result.append(item)
+            } else {
+                result.append(DayTokenData(id: df.string(from: date), date: date, totalTokens: 0))
+            }
+        }
+        return result
     }
 
     private func fetchTodayRow(_ db: OpaquePointer, _ cutoff: Int64) -> (input: Int, output: Int, sessions: Int)? {

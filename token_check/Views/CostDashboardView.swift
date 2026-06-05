@@ -62,8 +62,10 @@ struct CostDashboardView: View {
             TimeFilterView(
                 years: viewModel.availableYears,
                 months: viewModel.availableMonths,
+                days: viewModel.availableDays,
                 selectedYear: $viewModel.selectedYear,
                 selectedMonth: $viewModel.selectedMonth,
+                selectedDay: $viewModel.selectedDay,
                 onChange: { viewModel.applyFilter() }
             )
             Spacer()

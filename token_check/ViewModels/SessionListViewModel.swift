@@ -7,8 +7,16 @@ class SessionListViewModel: ObservableObject {
     @Published var error: String?
     @Published var searchText = ""
     @Published var periods: [TimePeriod] = []
-    @Published var selectedYear: String?
-    @Published var selectedMonth: String?
+    @Published var selectedYear: String? = {
+        String(Calendar.current.component(.year, from: Date()))
+    }()
+    @Published var selectedMonth: String? = {
+        String(format: "%02d", Calendar.current.component(.month, from: Date()))
+    }()
+    @Published var selectedDay: String? = {
+        String(format: "%02d", Calendar.current.component(.day, from: Date()))
+    }()
+    @Published var availableDays: [String] = []
 
     var availableYears: [String] {
         let years = Set(periods.map(\.year))
@@ -39,10 +47,17 @@ class SessionListViewModel: ObservableObject {
             do {
                 let service = try DatabaseService()
                 let periods = try service.fetchAvailablePeriods()
-                let sessions = try service.fetchSessions(year: self.selectedYear, month: self.selectedMonth, limit: 200)
+                let sessions = try service.fetchSessions(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay, limit: 200)
+
+                var days: [String] = []
+                if let year = self.selectedYear, let month = self.selectedMonth {
+                    days = try service.fetchAvailableDays(year: year, month: month)
+                }
+
                 DispatchQueue.main.async {
                     self.periods = periods
                     self.sessions = sessions
+                    self.availableDays = ["全部"] + days
                     self.isLoading = false
                 }
             } catch {

@@ -3,8 +3,10 @@ import SwiftUI
 struct TimeFilterView: View {
     let years: [String]
     let months: [String]
+    let days: [String]
     @Binding var selectedYear: String?
     @Binding var selectedMonth: String?
+    @Binding var selectedDay: String?
     let onChange: () -> Void
 
     var body: some View {
@@ -15,9 +17,11 @@ struct TimeFilterView: View {
                     if $0 == "全部" {
                         selectedYear = nil
                         selectedMonth = nil
+                        selectedDay = nil
                     } else {
                         selectedYear = $0
                         selectedMonth = nil
+                        selectedDay = nil
                     }
                     onChange()
                 }
@@ -33,6 +37,7 @@ struct TimeFilterView: View {
                     get: { selectedMonth ?? "全部" },
                     set: {
                         selectedMonth = $0 == "全部" ? nil : $0
+                        selectedDay = nil
                         onChange()
                     }
                 )) {
@@ -41,6 +46,25 @@ struct TimeFilterView: View {
                             Text("全部月份").tag(month)
                         } else {
                             Text("\(Int(month) ?? 0)月").tag(month)
+                        }
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            if !days.isEmpty {
+                Picker("日期", selection: Binding(
+                    get: { selectedDay ?? "全部" },
+                    set: {
+                        selectedDay = $0 == "全部" ? nil : $0
+                        onChange()
+                    }
+                )) {
+                    ForEach(days, id: \.self) { day in
+                        if day == "全部" {
+                            Text("全部日期").tag(day)
+                        } else {
+                            Text("\(Int(day) ?? 0)日").tag(day)
                         }
                     }
                 }
