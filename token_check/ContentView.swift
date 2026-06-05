@@ -1,24 +1,18 @@
-//
-//  ContentView.swift
-//  token_check
-//
-//  Created by Lang Qin on 2026/6/5.
-//
-
 import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+        TabView {
+            CostDashboardView()
+                .tabItem {
+                    Label("费用", systemImage: "yensign.circle.fill")
+                }
 
-#Preview {
-    ContentView()
+            SessionListView()
+                .tabItem {
+                    Label("会话", systemImage: "list.bullet")
+                }
+        }
+        .frame(minWidth: 800, minHeight: 500)
+    }
 }
