@@ -10,6 +10,6 @@ struct DailyModelUsage: Identifiable {
     let outputTokens: Int
 
     var displayName: String {
-        variant == "default" ? modelId : "\(modelId) (\(variant))"
+        variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
     }
 }

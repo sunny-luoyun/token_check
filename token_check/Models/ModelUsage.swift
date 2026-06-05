@@ -13,6 +13,6 @@ struct ModelUsage: Identifiable {
     let cost: Double
 
     var displayName: String {
-        variant == "default" ? modelId : "\(modelId) (\(variant))"
+        variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
     }
 }

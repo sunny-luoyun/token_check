@@ -16,6 +16,6 @@ struct Session: Identifiable {
     let project: String?
 
     var modelDisplayName: String {
-        modelVariant == "default" ? modelId : "\(modelId) (\(modelVariant))"
+        modelVariant == "default" || modelVariant == "max" ? modelId : "\(modelId) (\(modelVariant))"
     }
 }

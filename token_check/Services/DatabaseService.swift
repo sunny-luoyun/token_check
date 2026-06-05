@@ -64,7 +64,7 @@ final class DatabaseService {
         try readAll(
             """
             SELECT json_extract(model, '$.id') AS model_id,
-                   json_extract(model, '$.variant') AS variant,
+                   CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COUNT(*) AS sessions,
                    COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_output), 0),
@@ -142,7 +142,7 @@ final class DatabaseService {
             """
             SELECT date(datetime(time_created / 1000, 'unixepoch')) AS day,
                    json_extract(model, '$.id') AS model_id,
-                   json_extract(model, '$.variant') AS variant,
+                   CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_output), 0),
                    COALESCE(SUM(tokens_input + tokens_output), 0)
@@ -189,7 +189,7 @@ final class DatabaseService {
         try readAll(
             """
             SELECT json_extract(model, '$.id') AS model_id,
-                   json_extract(model, '$.variant') AS variant,
+                   CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COUNT(*) AS sessions,
                    COALESCE(SUM(MAX(tokens_input - tokens_cache_read, 0)), 0) AS miss,
                    COALESCE(SUM(tokens_cache_read), 0) AS hit,
@@ -267,7 +267,7 @@ final class DatabaseService {
                 tokensCacheWrite: int(stmt, 7),
                 cost: double(stmt, 8),
                 modelId: modelDict?["id"] as? String ?? "unknown",
-                modelVariant: modelDict?["variant"] as? String ?? "default",
+                modelVariant: { let v = modelDict?["variant"] as? String ?? "default"; return v == "max" ? "default" : v }(),
                 timeCreated: Date(timeIntervalSince1970: TimeInterval(int64(stmt, 10)) / 1000),
                 project: text(stmt, 11)
             )
