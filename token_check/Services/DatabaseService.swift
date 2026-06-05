@@ -124,6 +124,53 @@ final class DatabaseService {
         }
     }
 
+    func fetchDailyUsageByModel(days: Int = 30, year: String? = nil, month: String? = nil) throws -> [DailyModelUsage] {
+        var whereClause = ""
+        var params: [Any] = []
+        if let year, let month {
+            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch')) = ?"
+            params = [year, month]
+        } else if let year {
+            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch')) = ?"
+            params = [year]
+        } else {
+            let cutoff = Date.now.timeIntervalSince1970 * 1000 - Double(days) * 86_400 * 1000
+            whereClause = "WHERE time_created > ?"
+            params = [Int64(cutoff)]
+        }
+        return try readAll(
+            """
+            SELECT date(datetime(time_created / 1000, 'unixepoch')) AS day,
+                   json_extract(model, '$.id') AS model_id,
+                   json_extract(model, '$.variant') AS variant,
+                   COALESCE(SUM(tokens_input), 0),
+                   COALESCE(SUM(tokens_output), 0),
+                   COALESCE(SUM(tokens_input + tokens_output), 0)
+            FROM session
+            \(whereClause)
+            GROUP BY day, model_id, variant
+            ORDER BY day, model_id
+            """,
+            parameters: params
+        ) { stmt in
+            let dateStr = text(stmt, 0) ?? ""
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+            let date = df.date(from: dateStr) ?? .now
+            let mid = text(stmt, 1) ?? "unknown"
+            let variant = text(stmt, 2) ?? "default"
+            return DailyModelUsage(
+                id: "\(dateStr)/\(mid)/\(variant)",
+                date: date,
+                modelId: mid,
+                variant: variant,
+                totalTokens: int(stmt, 5),
+                inputTokens: int(stmt, 3),
+                outputTokens: int(stmt, 4)
+            )
+        }
+    }
+
     func fetchAvailablePeriods() throws -> [TimePeriod] {
         try readAll(
             """

@@ -12,6 +12,11 @@ struct ContentView: View {
                 .tabItem {
                     Label("会话", systemImage: "list.bullet")
                 }
+
+            DailyTrendView()
+                .tabItem {
+                    Label("趋势", systemImage: "chart.line.uptrend.xyaxis")
+                }
         }
         .frame(minWidth: 800, minHeight: 500)
     }
