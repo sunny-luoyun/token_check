@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CostDashboardView: View {
     @StateObject private var viewModel = CostViewModel()
+    @AppStorage(ModelPricingStore.storageKey) private var pricingRulesData = Data()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,6 +53,9 @@ struct CostDashboardView: View {
             }
         }
         .onAppear {
+            viewModel.load()
+        }
+        .onChange(of: pricingRulesData) {
             viewModel.load()
         }
     }
@@ -120,19 +124,9 @@ struct CostDashboardView: View {
             Text("费用说明: ")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("输入（未命中） ¥1/百万token")
+            Text(viewModel.pricingDescription)
                 .font(.caption2)
-                .foregroundStyle(.orange)
-            Text("·")
-                .foregroundStyle(.tertiary)
-            Text("缓存命中 ¥0.02/百万token")
-                .font(.caption2)
-                .foregroundStyle(.green)
-            Text("·")
-                .foregroundStyle(.tertiary)
-            Text("输出 ¥2/百万token")
-                .font(.caption2)
-                .foregroundStyle(.blue)
+                .foregroundStyle(.secondary)
             Spacer()
             Text("总计 \(formatCost(summary.totalCost))")
                 .font(.caption.monospaced().bold())

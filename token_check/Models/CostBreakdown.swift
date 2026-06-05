@@ -9,21 +9,22 @@ struct ModelCostBreakdown: Identifiable {
     let cacheHitTokens: Int
     let outputTokens: Int
     let reasoningTokens: Int
+    let pricing: ModelPricingRule
 
     var displayName: String {
         variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
     }
 
     var missCost: Double {
-        Double(cacheMissTokens) / 1_000_000 * 1.0
+        Double(cacheMissTokens) / 1_000_000 * pricing.inputMissPricePerMillion
     }
 
     var hitCost: Double {
-        Double(cacheHitTokens) / 1_000_000 * 0.02
+        Double(cacheHitTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
     }
 
     var outputCost: Double {
-        Double(outputTokens) / 1_000_000 * 2.0
+        Double(outputTokens) / 1_000_000 * pricing.outputPricePerMillion
     }
 
     var totalCost: Double {
@@ -37,23 +38,25 @@ struct CostSummary {
     let totalOutputTokens: Int
     let totalReasoningTokens: Int
     let sessionCount: Int
+    let missCost: Double
+    let hitCost: Double
+    let outputCost: Double
 
     var totalCost: Double {
-        Double(totalMissTokens) / 1_000_000 * 1.0
-            + Double(totalHitTokens) / 1_000_000 * 0.02
-            + Double(totalOutputTokens) / 1_000_000 * 2.0
+        missCost + hitCost + outputCost
     }
 
-    var missCost: Double {
-        Double(totalMissTokens) / 1_000_000 * 1.0
-    }
-
-    var hitCost: Double {
-        Double(totalHitTokens) / 1_000_000 * 0.02
-    }
-
-    var outputCost: Double {
-        Double(totalOutputTokens) / 1_000_000 * 2.0
+    static func from(breakdown: [ModelCostBreakdown]) -> CostSummary {
+        CostSummary(
+            totalMissTokens: breakdown.reduce(0) { $0 + $1.cacheMissTokens },
+            totalHitTokens: breakdown.reduce(0) { $0 + $1.cacheHitTokens },
+            totalOutputTokens: breakdown.reduce(0) { $0 + $1.outputTokens },
+            totalReasoningTokens: breakdown.reduce(0) { $0 + $1.reasoningTokens },
+            sessionCount: breakdown.reduce(0) { $0 + $1.sessions },
+            missCost: breakdown.reduce(0) { $0 + $1.missCost },
+            hitCost: breakdown.reduce(0) { $0 + $1.hitCost },
+            outputCost: breakdown.reduce(0) { $0 + $1.outputCost }
+        )
     }
 }
 

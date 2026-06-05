@@ -205,8 +205,9 @@ final class DatabaseService {
         }
     }
 
-    func fetchModelCostBreakdown(year: String? = nil, month: String? = nil, day: String? = nil) throws -> [ModelCostBreakdown] {
-        try readAll(
+    func fetchModelCostBreakdown(year: String? = nil, month: String? = nil, day: String? = nil, pricingRules: [ModelPricingRule] = []) throws -> [ModelCostBreakdown] {
+        let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
+        return try readAll(
             """
             SELECT json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
@@ -222,15 +223,18 @@ final class DatabaseService {
             """,
             parameters: timeParams(year: year, month: month, day: day)
         ) { stmt in
-            ModelCostBreakdown(
-                id: "\(text(stmt, 0) ?? "unknown")/\(text(stmt, 1) ?? "default")",
-                modelId: text(stmt, 0) ?? "unknown",
-                variant: text(stmt, 1) ?? "default",
+            let modelId = text(stmt, 0) ?? "unknown"
+            let variant = text(stmt, 1) ?? "default"
+            return ModelCostBreakdown(
+                id: "\(modelId)/\(variant)",
+                modelId: modelId,
+                variant: variant,
                 sessions: int(stmt, 2),
                 cacheMissTokens: int(stmt, 3),
                 cacheHitTokens: int(stmt, 4),
                 outputTokens: int(stmt, 5),
-                reasoningTokens: int(stmt, 6)
+                reasoningTokens: int(stmt, 6),
+                pricing: pricingLookup["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
             )
         }
     }
@@ -253,7 +257,10 @@ final class DatabaseService {
                 totalHitTokens: int(stmt, 1),
                 totalOutputTokens: int(stmt, 2),
                 totalReasoningTokens: int(stmt, 3),
-                sessionCount: int(stmt, 4)
+                sessionCount: int(stmt, 4),
+                missCost: Double(int(stmt, 0)) / 1_000_000 * ModelPricingRule.defaultInputMissPricePerMillion,
+                hitCost: Double(int(stmt, 1)) / 1_000_000 * ModelPricingRule.defaultCacheHitPricePerMillion,
+                outputCost: Double(int(stmt, 2)) / 1_000_000 * ModelPricingRule.defaultOutputPricePerMillion
             )
         }
     }

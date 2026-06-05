@@ -4,6 +4,7 @@ import Foundation
 class CostViewModel: ObservableObject {
     @Published var summary: CostSummary?
     @Published var modelBreakdown: [ModelCostBreakdown] = []
+    @Published var pricingDescription = ""
     @Published var periods: [TimePeriod] = []
     @Published var selectedYear: String? = {
         String(Calendar.current.component(.year, from: Date()))
@@ -38,8 +39,15 @@ class CostViewModel: ObservableObject {
             do {
                 let service = try DatabaseService()
                 let periods = try service.fetchAvailablePeriods()
-                let summary = try service.fetchCostSummary(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
-                let breakdown = try service.fetchModelCostBreakdown(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
+                let pricingRules = ModelPricingStore.load()
+                let breakdown = try service.fetchModelCostBreakdown(
+                    year: self.selectedYear,
+                    month: self.selectedMonth,
+                    day: self.selectedDay,
+                    pricingRules: pricingRules
+                )
+                let summary = CostSummary.from(breakdown: breakdown)
+                let pricingDescription = Self.makePricingDescription(for: breakdown)
 
                 var days: [String] = []
                 if let year = self.selectedYear, let month = self.selectedMonth {
@@ -50,6 +58,7 @@ class CostViewModel: ObservableObject {
                     self.periods = periods
                     self.summary = summary
                     self.modelBreakdown = breakdown
+                    self.pricingDescription = pricingDescription
                     self.availableDays = ["全部"] + days
                     self.isLoading = false
                 }
@@ -64,5 +73,19 @@ class CostViewModel: ObservableObject {
 
     func applyFilter() {
         load()
+    }
+
+    private static func makePricingDescription(for breakdown: [ModelCostBreakdown]) -> String {
+        let customizedCount = Set(
+            breakdown
+                .filter { !$0.pricing.usesDefaultPricing }
+                .map(\.pricing.pricingKey)
+        ).count
+
+        if customizedCount == 0 {
+            return "输入（未命中） ¥1/百万token · 缓存命中 ¥0.02/百万token · 输出 ¥2/百万token"
+        }
+
+        return "按设置中的模型单价计算（已配置 \(customizedCount) 个模型）"
     }
 }
