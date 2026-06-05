@@ -39,6 +39,16 @@
 		6E5B31AE2FD27D410055EA1E /* TokenStatsWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TokenStatsWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		6EF0C0012FD300000055EA30 /* Exceptions for "TokenStatsWidget" folder in "TokenStatsWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				WidgetExtension.plist,
+			);
+			target = 6E5B31AD2FD27D410055EA1D /* TokenStatsWidget */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6E5B31A12FD27D400055EA1C /* token_check */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -47,6 +57,9 @@
 		};
 		6E5B31AF2FD27D410055EA1F /* TokenStatsWidget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				6EF0C0012FD300000055EA30 /* Exceptions for "TokenStatsWidget" folder in "TokenStatsWidget" target */,
+			);
 			path = TokenStatsWidget;
 			sourceTree = "<group>";
 		};
