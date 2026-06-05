@@ -2,13 +2,25 @@ import SwiftUI
 
 @main
 struct token_checkApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = TokenViewModel()
     @StateObject private var dwm = DesktopWidgetManager()
+    private let sceneController = AppSceneController()
     @AppStorage("showDockIcon") private var showDockIcon = true
 
+    init() {
+        appDelegate.sceneController = sceneController
+    }
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Window("Token Check", id: "main") {
+            MainWindowSceneView(sceneController: sceneController)
+                .onAppear {
+                    applyDockState()
+                }
+                .onChange(of: showDockIcon) {
+                    applyDockState()
+                }
         }
         .windowResizability(.contentMinSize)
 
@@ -59,7 +71,6 @@ struct token_checkApp: App {
             .frame(width: 280)
             .onAppear {
                 dwm.setup(model: model)
-                applyDockState()
             }
         } label: {
             Label(
