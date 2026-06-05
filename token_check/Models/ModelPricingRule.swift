@@ -39,14 +39,20 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
 }
 
 enum ModelPricingStore {
+    static let appGroupIdentifier = "group.com.luoyun.tokencheck"
     static let storageKey = "modelPricingRules"
+    static let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier)
 
-    static func load(from defaults: UserDefaults = .standard) -> [ModelPricingRule] {
+    static func load(from defaults: UserDefaults? = nil) -> [ModelPricingRule] {
+        migrateIfNeeded()
+        let defaults = defaults ?? effectiveDefaults
         guard let data = defaults.data(forKey: storageKey) else { return [] }
         return (try? JSONDecoder().decode([ModelPricingRule].self, from: data)) ?? []
     }
 
-    static func save(_ rules: [ModelPricingRule], to defaults: UserDefaults = .standard) {
+    static func save(_ rules: [ModelPricingRule], to defaults: UserDefaults? = nil) {
+        migrateIfNeeded()
+        let defaults = defaults ?? effectiveDefaults
         guard let data = try? JSONEncoder().encode(rules) else { return }
         defaults.set(data, forKey: storageKey)
     }
@@ -57,5 +63,16 @@ enum ModelPricingStore {
 
     static func rule(forModelId modelId: String, variant: String, rules: [ModelPricingRule]) -> ModelPricingRule {
         lookup(from: rules)["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
+    }
+
+    private static var effectiveDefaults: UserDefaults {
+        sharedDefaults ?? .standard
+    }
+
+    private static func migrateIfNeeded() {
+        guard let sharedDefaults else { return }
+        guard sharedDefaults.data(forKey: storageKey) == nil,
+              let legacyData = UserDefaults.standard.data(forKey: storageKey) else { return }
+        sharedDefaults.set(legacyData, forKey: storageKey)
     }
 }

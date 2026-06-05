@@ -2,7 +2,7 @@ import SwiftUI
 
 struct CostDashboardView: View {
     @StateObject private var viewModel = CostViewModel()
-    @AppStorage(ModelPricingStore.storageKey) private var pricingRulesData = Data()
+    @AppStorage(ModelPricingStore.storageKey, store: ModelPricingStore.sharedDefaults) private var pricingRulesData = Data()
 
     var body: some View {
         VStack(spacing: 0) {

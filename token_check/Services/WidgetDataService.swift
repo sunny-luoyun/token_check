@@ -14,11 +14,18 @@ struct TodayUsage {
     let cacheReadTokens: Int
     let sessionCount: Int
     let dailyTokens: [DayTokenData]
+    let todayCost: Double
+}
 
-    var todayCost: Double {
-        Double(inputTokens) / 1_000_000 * 1.0
-            + Double(cacheReadTokens) / 1_000_000 * 0.02
-            + Double(outputTokens) / 1_000_000 * 2.0
+private struct TodayModelUsage {
+    let modelId: String
+    let variant: String
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheReadTokens: Int
+
+    var pricingKey: String {
+        "\(modelId)/\(variant)"
     }
 }
 
@@ -31,6 +38,8 @@ final class WidgetDataService {
         let sevenDaysAgo = todayStart - 6 * 86_400 * 1000
 
         guard let todayRow = fetchTodayRow(db, todayStart) else { return nil }
+        let pricingRules = ModelPricingStore.lookup(from: ModelPricingStore.load())
+        let todayCost = calculateTodayCost(fetchTodayModelUsage(db, todayStart), pricingRules: pricingRules)
         let dailyTokens = fillMissingDays(fetchDailyTokens(db, sevenDaysAgo) ?? [], since: sevenDaysAgo)
 
         return TodayUsage(
@@ -39,7 +48,8 @@ final class WidgetDataService {
             outputTokens: todayRow.output,
             cacheReadTokens: todayRow.cacheRead,
             sessionCount: todayRow.sessions,
-            dailyTokens: dailyTokens
+            dailyTokens: dailyTokens,
+            todayCost: todayCost
         )
     }
 
@@ -114,6 +124,48 @@ final class WidgetDataService {
         return tokens.isEmpty ? nil : tokens
     }
 
+    private func fetchTodayModelUsage(_ db: OpaquePointer, _ cutoff: Int64) -> [TodayModelUsage] {
+        let sql = """
+            SELECT json_extract(model, '$.id') AS model_id,
+                   CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
+                   COALESCE(SUM(tokens_input), 0),
+                   COALESCE(SUM(tokens_output), 0),
+                   COALESCE(SUM(tokens_cache_read), 0)
+            FROM session
+            WHERE time_created > ?
+            GROUP BY model_id, variant
+        """
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, cutoff)
+
+        var usage: [TodayModelUsage] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            usage.append(
+                TodayModelUsage(
+                    modelId: text(stmt, 0) ?? "unknown",
+                    variant: text(stmt, 1) ?? "default",
+                    inputTokens: int(stmt, 2),
+                    outputTokens: int(stmt, 3),
+                    cacheReadTokens: int(stmt, 4)
+                )
+            )
+        }
+        return usage
+    }
+
+    private func calculateTodayCost(_ usage: [TodayModelUsage], pricingRules: [String: ModelPricingRule]) -> Double {
+        usage.reduce(0) { total, item in
+            let pricing = pricingRules[item.pricingKey] ?? .defaults(modelId: item.modelId, variant: item.variant)
+            return total
+                + Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+                + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+                + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+        }
+    }
+
     private func openDB() -> OpaquePointer? {
         let path = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".local/share/opencode/opencode.db")
@@ -132,5 +184,10 @@ final class WidgetDataService {
 
     private func int(_ stmt: OpaquePointer, _ idx: Int32) -> Int {
         Int(sqlite3_column_int64(stmt, idx))
+    }
+
+    private func text(_ stmt: OpaquePointer, _ idx: Int32) -> String? {
+        guard let ptr = sqlite3_column_text(stmt, idx) else { return nil }
+        return String(cString: ptr)
     }
 }

@@ -7,6 +7,7 @@ import SQLite3
 struct TokenStatsEntry: TimelineEntry {
     let date: Date
     let totalTokens: Int
+    let todayCost: Double
     let inputTokens: Int
     let outputTokens: Int
     let cacheReadTokens: Int
@@ -28,6 +29,7 @@ struct Provider: TimelineProvider {
         TokenStatsEntry(
             date: Date(),
             totalTokens: 0,
+            todayCost: 0,
             inputTokens: 0,
             outputTokens: 0,
             cacheReadTokens: 0,
@@ -62,10 +64,12 @@ struct Provider: TimelineProvider {
         let dailyTokens = fillMissingDays(fetchDailyTokens(db, sevenDaysAgo) ?? [], since: sevenDaysAgo)
         let total7Day = dailyTokens.map(\.totalTokens).reduce(0, +)
         let total = row.input + row.cacheRead + row.output
+        let todayCost = calculateTodayCost(fetchTodayModelUsage(db, todayStart), pricingRules: loadPricingRules())
 
         return TokenStatsEntry(
             date: Date(),
             totalTokens: total,
+            todayCost: todayCost,
             inputTokens: row.input,
             outputTokens: row.output,
             cacheReadTokens: row.cacheRead,
@@ -79,6 +83,7 @@ struct Provider: TimelineProvider {
         TokenStatsEntry(
             date: Date(),
             totalTokens: 0,
+            todayCost: 0,
             inputTokens: 0,
             outputTokens: 0,
             cacheReadTokens: 0,
@@ -151,6 +156,38 @@ struct Provider: TimelineProvider {
         return tokens.isEmpty ? nil : tokens
     }
 
+    private func fetchTodayModelUsage(_ db: OpaquePointer, _ cutoff: Int64) -> [TodayModelUsage] {
+        let sql = """
+            SELECT json_extract(model, '$.id') AS model_id,
+                   CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
+                   COALESCE(SUM(tokens_input), 0),
+                   COALESCE(SUM(tokens_output), 0),
+                   COALESCE(SUM(tokens_cache_read), 0)
+            FROM session
+            WHERE time_created > ?
+            GROUP BY model_id, variant
+        """
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, cutoff)
+
+        var usage: [TodayModelUsage] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            usage.append(
+                TodayModelUsage(
+                    modelId: text(stmt, 0) ?? "unknown",
+                    variant: text(stmt, 1) ?? "default",
+                    inputTokens: int(stmt, 2),
+                    outputTokens: int(stmt, 3),
+                    cacheReadTokens: int(stmt, 4)
+                )
+            )
+        }
+        return usage
+    }
+
     private func fillMissingDays(_ tokens: [DayTokenData], since cutoffMs: Int64) -> [DayTokenData] {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
@@ -174,6 +211,68 @@ struct Provider: TimelineProvider {
 
     private func int(_ stmt: OpaquePointer, _ idx: Int32) -> Int {
         Int(sqlite3_column_int64(stmt, idx))
+    }
+
+    private func text(_ stmt: OpaquePointer, _ idx: Int32) -> String? {
+        guard let ptr = sqlite3_column_text(stmt, idx) else { return nil }
+        return String(cString: ptr)
+    }
+
+    private func loadPricingRules() -> [String: ModelPricingRule] {
+        let defaults = UserDefaults(suiteName: ModelPricingRule.appGroupIdentifier) ?? .standard
+        guard let data = defaults.data(forKey: ModelPricingRule.storageKey),
+              let rules = try? JSONDecoder().decode([ModelPricingRule].self, from: data) else { return [:] }
+        return Dictionary(uniqueKeysWithValues: rules.map { ($0.pricingKey, $0) })
+    }
+
+    private func calculateTodayCost(_ usage: [TodayModelUsage], pricingRules: [String: ModelPricingRule]) -> Double {
+        usage.reduce(0) { total, item in
+            let pricing = pricingRules[item.pricingKey] ?? .defaults(modelId: item.modelId, variant: item.variant)
+            return total
+                + Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+                + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+                + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+        }
+    }
+}
+
+private struct TodayModelUsage {
+    let modelId: String
+    let variant: String
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheReadTokens: Int
+
+    var pricingKey: String {
+        "\(modelId)/\(variant)"
+    }
+}
+
+private struct ModelPricingRule: Codable {
+    static let appGroupIdentifier = "group.com.luoyun.tokencheck"
+    static let storageKey = "modelPricingRules"
+    static let defaultInputMissPricePerMillion = 1.0
+    static let defaultCacheHitPricePerMillion = 0.02
+    static let defaultOutputPricePerMillion = 2.0
+
+    let modelId: String
+    let variant: String
+    let inputMissPricePerMillion: Double
+    let cacheHitPricePerMillion: Double
+    let outputPricePerMillion: Double
+
+    var pricingKey: String {
+        "\(modelId)/\(variant)"
+    }
+
+    static func defaults(modelId: String, variant: String) -> ModelPricingRule {
+        ModelPricingRule(
+            modelId: modelId,
+            variant: variant,
+            inputMissPricePerMillion: defaultInputMissPricePerMillion,
+            cacheHitPricePerMillion: defaultCacheHitPricePerMillion,
+            outputPricePerMillion: defaultOutputPricePerMillion
+        )
     }
 }
 
@@ -210,6 +309,9 @@ struct TokenStatsWidgetEntryView: View {
                 .foregroundStyle(.blue)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
+            Text(formatCost(entry.todayCost))
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
             Spacer()
             HStack(spacing: 0) {
                 statItem("输入", formatTokens(entry.inputTokens), .blue)
@@ -246,6 +348,10 @@ struct TokenStatsWidgetEntryView: View {
                 .font(.system(size: 28, weight: .bold, design: .monospaced))
                 .foregroundStyle(.blue)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            Text(formatCost(entry.todayCost))
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 10)
 
             HStack(spacing: 0) {
@@ -280,7 +386,6 @@ struct TokenStatsWidgetEntryView: View {
 
     private var progressBar: some View {
         let maxVal = entry.dailyTokens.map(\.totalTokens).max() ?? 1
-        let barMax: CGFloat = 100
         return GeometryReader { geo in
             HStack(spacing: 2) {
                 ForEach(entry.dailyTokens) { item in
@@ -322,6 +427,10 @@ struct TokenStatsWidgetEntryView: View {
         } else {
             "\(n)"
         }
+    }
+
+    private func formatCost(_ c: Double) -> String {
+        String(format: "¥%.2f", c)
     }
 }
 

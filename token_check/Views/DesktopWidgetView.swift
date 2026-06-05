@@ -100,7 +100,7 @@ struct DesktopWidgetView: View {
         .onDisappear {
             timerCancellable?.cancel()
         }
-        .onChange(of: refreshMinutes) { _ in
+        .onChange(of: refreshMinutes) { _, _ in
             startRefreshTimer()
         }
     }
