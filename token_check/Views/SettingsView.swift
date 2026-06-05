@@ -58,6 +58,8 @@ struct SettingsView: View {
                         GridRow {
                             Text("模型")
                                 .font(.caption.bold())
+                            Text("启用")
+                                .font(.caption.bold())
                             Text("输入（无缓存）")
                                 .font(.caption.bold())
                             Text("输入（有缓存）")
@@ -76,8 +78,11 @@ struct SettingsView: View {
                                         Text("已自定义")
                                             .font(.caption2)
                                             .foregroundStyle(.blue)
-                                    }
+                                        }
                                 }
+
+                                Toggle("", isOn: $rule.isEnabled)
+                                    .labelsHidden()
 
                                 TextField(
                                     "输入（无缓存）",
@@ -85,6 +90,7 @@ struct SettingsView: View {
                                     format: .number.precision(.fractionLength(0...4))
                                 )
                                 .textFieldStyle(.roundedBorder)
+                                .disabled(!rule.isEnabled)
 
                                 TextField(
                                     "输入（有缓存）",
@@ -92,6 +98,7 @@ struct SettingsView: View {
                                     format: .number.precision(.fractionLength(0...4))
                                 )
                                 .textFieldStyle(.roundedBorder)
+                                .disabled(!rule.isEnabled)
 
                                 TextField(
                                     "输出",
@@ -99,6 +106,7 @@ struct SettingsView: View {
                                     format: .number.precision(.fractionLength(0...4))
                                 )
                                 .textFieldStyle(.roundedBorder)
+                                .disabled(!rule.isEnabled)
 
                                 Button("默认") {
                                     resetPricing(for: rule.pricingKey)
@@ -163,12 +171,18 @@ struct SettingsView: View {
     }
 
     private func resetAllPricing() {
-        pricingRules = pricingRules.map { .defaults(modelId: $0.modelId, variant: $0.variant) }
+        pricingRules = pricingRules.map {
+            var rule = ModelPricingRule.defaults(modelId: $0.modelId, variant: $0.variant)
+            rule.isEnabled = $0.isEnabled
+            return rule
+        }
     }
 
     private func resetPricing(for key: String) {
         guard let index = pricingRules.firstIndex(where: { $0.pricingKey == key }) else { return }
+        let isEnabled = pricingRules[index].isEnabled
         pricingRules[index] = .defaults(modelId: pricingRules[index].modelId, variant: pricingRules[index].variant)
+        pricingRules[index].isEnabled = isEnabled
     }
 
     private static func mergePricingRules(models: [ModelPricingRule], savedRules: [ModelPricingRule]) -> [ModelPricingRule] {

@@ -7,6 +7,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
 
     let modelId: String
     let variant: String
+    var isEnabled: Bool = true
     var inputMissPricePerMillion: Double
     var cacheHitPricePerMillion: Double
     var outputPricePerMillion: Double
@@ -27,10 +28,46 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
             && outputPricePerMillion == Self.defaultOutputPricePerMillion
     }
 
+    enum CodingKeys: String, CodingKey {
+        case modelId
+        case variant
+        case isEnabled
+        case inputMissPricePerMillion
+        case cacheHitPricePerMillion
+        case outputPricePerMillion
+    }
+
+    init(
+        modelId: String,
+        variant: String,
+        isEnabled: Bool = true,
+        inputMissPricePerMillion: Double,
+        cacheHitPricePerMillion: Double,
+        outputPricePerMillion: Double
+    ) {
+        self.modelId = modelId
+        self.variant = variant
+        self.isEnabled = isEnabled
+        self.inputMissPricePerMillion = inputMissPricePerMillion
+        self.cacheHitPricePerMillion = cacheHitPricePerMillion
+        self.outputPricePerMillion = outputPricePerMillion
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        modelId = try container.decode(String.self, forKey: .modelId)
+        variant = try container.decode(String.self, forKey: .variant)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        inputMissPricePerMillion = try container.decode(Double.self, forKey: .inputMissPricePerMillion)
+        cacheHitPricePerMillion = try container.decode(Double.self, forKey: .cacheHitPricePerMillion)
+        outputPricePerMillion = try container.decode(Double.self, forKey: .outputPricePerMillion)
+    }
+
     static func defaults(modelId: String, variant: String) -> ModelPricingRule {
         ModelPricingRule(
             modelId: modelId,
             variant: variant,
+            isEnabled: true,
             inputMissPricePerMillion: defaultInputMissPricePerMillion,
             cacheHitPricePerMillion: defaultCacheHitPricePerMillion,
             outputPricePerMillion: defaultOutputPricePerMillion
@@ -63,6 +100,10 @@ enum ModelPricingStore {
 
     static func rule(forModelId modelId: String, variant: String, rules: [ModelPricingRule]) -> ModelPricingRule {
         lookup(from: rules)["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
+    }
+
+    static func isEnabled(forModelId modelId: String, variant: String, rules: [ModelPricingRule]) -> Bool {
+        lookup(from: rules)["\(modelId)/\(variant)"]?.isEnabled ?? true
     }
 
     private static var effectiveDefaults: UserDefaults {

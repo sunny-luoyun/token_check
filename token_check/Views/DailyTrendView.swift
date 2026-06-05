@@ -3,6 +3,7 @@ import Charts
 
 struct DailyTrendView: View {
     @StateObject private var viewModel = DailyTrendViewModel()
+    @AppStorage(ModelPricingStore.storageKey, store: ModelPricingStore.sharedDefaults) private var pricingRulesData = Data()
 
     private let modelColors: [Color] = [
         .blue, .green, .orange, .purple, .red, .teal, .pink, .indigo,
@@ -62,6 +63,9 @@ struct DailyTrendView: View {
             }
         }
         .onAppear {
+            viewModel.load()
+        }
+        .onChange(of: pricingRulesData) {
             viewModel.load()
         }
     }

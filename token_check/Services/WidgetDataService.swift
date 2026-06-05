@@ -159,6 +159,7 @@ final class WidgetDataService {
     private func calculateTodayCost(_ usage: [TodayModelUsage], pricingRules: [String: ModelPricingRule]) -> Double {
         usage.reduce(0) { total, item in
             let pricing = pricingRules[item.pricingKey] ?? .defaults(modelId: item.modelId, variant: item.variant)
+            guard pricing.isEnabled else { return total }
             return total
                 + Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
                 + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion

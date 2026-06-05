@@ -78,6 +78,7 @@ class DailyTrendViewModel: ObservableObject {
             do {
                 let service = try DatabaseService()
                 let periods = try service.fetchAvailablePeriods()
+                let pricingRules = ModelPricingStore.load()
                 let data: [DailyModelUsage]
                 if self.isMonthlyMode {
                     data = try service.fetchDailyUsageByModel(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
@@ -85,20 +86,24 @@ class DailyTrendViewModel: ObservableObject {
                     data = try service.fetchDailyUsageByModel(days: self.days)
                 }
 
+                let filteredData = data.filter {
+                    ModelPricingStore.isEnabled(forModelId: $0.modelId, variant: $0.variant, rules: pricingRules)
+                }
+
                 var days: [String] = []
                 if self.isMonthlyMode, let year = self.selectedYear, let month = self.selectedMonth {
                     days = try service.fetchAvailableDays(year: year, month: month)
                 }
 
-                let filledData = self.isMonthlyMode ? data : self.fillMissingDays(data, days: self.days)
+                let filledData = self.isMonthlyMode ? filteredData : self.fillMissingDays(filteredData, days: self.days)
 
                 DispatchQueue.main.async {
                     self.periods = periods
                     self.dailyData = filledData
                     self.availableDays = ["全部"] + days
-                    if self.selectedModels.isEmpty {
-                        self.selectedModels = Set(filledData.map(\.displayName))
-                    }
+                    let availableModels = Set(filledData.map(\.displayName))
+                    let preservedSelection = self.selectedModels.intersection(availableModels)
+                    self.selectedModels = preservedSelection.isEmpty ? availableModels : preservedSelection
                     self.isLoading = false
                 }
             } catch {

@@ -237,6 +237,7 @@ final class DatabaseService {
                 pricing: pricingLookup["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
             )
         }
+        .filter { $0.pricing.isEnabled }
     }
 
     func fetchCostSummary(year: String? = nil, month: String? = nil, day: String? = nil) throws -> CostSummary {
