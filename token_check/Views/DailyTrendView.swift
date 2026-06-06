@@ -11,7 +11,7 @@ struct DailyTrendView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 6) {
             if viewModel.isLoading {
                 Spacer()
                 ProgressView("正在加载…")
@@ -32,15 +32,11 @@ struct DailyTrendView: View {
             } else {
                 timeFilterBar
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
-
-                if viewModel.isMonthlyMode {
-                    monthFilterBar
-                        .padding(.horizontal)
-                        .padding(.bottom, 8)
-                }
 
                 metricFilterBar
+                    .padding(.horizontal)
+
+                chartModeBar
                     .padding(.horizontal)
 
                 chartSection
@@ -48,7 +44,6 @@ struct DailyTrendView: View {
 
                 modelLegend
                     .padding(.horizontal)
-                    .padding(.top, 8)
             }
         }
         .navigationTitle("趋势")
@@ -74,47 +69,58 @@ struct DailyTrendView: View {
 
     private var timeFilterBar: some View {
         HStack {
-            Spacer()
             Picker("时间范围", selection: $viewModel.timeMode) {
                 ForEach(DailyTrendViewModel.TimeMode.allCases, id: \.self) { mode in
                     Text(mode.rawValue).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 360)
+            .frame(width: 360, alignment: .leading)
             .onChange(of: viewModel.timeMode) { _ in
                 viewModel.applyFilter()
             }
+
+            if viewModel.isMonthlyMode {
+                TimeFilterView(
+                    years: viewModel.availableYears,
+                    months: viewModel.availableMonths,
+                    days: viewModel.availableDays,
+                    selectedYear: $viewModel.selectedYear,
+                    selectedMonth: $viewModel.selectedMonth,
+                    selectedDay: $viewModel.selectedDay,
+                    onChange: { viewModel.applyFilter() }
+                )
+                .padding(.leading, 8)
+            }
+
             Spacer()
         }
     }
 
     private var metricFilterBar: some View {
         HStack {
-            Spacer()
-            Picker("指标", selection: $viewModel.selectedMetric) {
+            Picker("输入输出", selection: $viewModel.selectedMetric) {
                 ForEach(DailyTrendViewModel.MetricType.allCases, id: \.self) { metric in
                     Text(metric.rawValue).tag(metric)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 480)
+            .frame(width: 480, alignment: .leading)
             Spacer()
         }
     }
 
-    private var monthFilterBar: some View {
+    // MARK: - Chart Mode
+
+    private var chartModeBar: some View {
         HStack {
-            Spacer()
-            TimeFilterView(
-                years: viewModel.availableYears,
-                months: viewModel.availableMonths,
-                days: viewModel.availableDays,
-                selectedYear: $viewModel.selectedYear,
-                selectedMonth: $viewModel.selectedMonth,
-                selectedDay: $viewModel.selectedDay,
-                onChange: { viewModel.applyFilter() }
-            )
+            Picker("统计指标", selection: $viewModel.chartMode) {
+                ForEach(DailyTrendViewModel.ChartMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 200, alignment: .leading)
             Spacer()
         }
     }
@@ -123,33 +129,48 @@ struct DailyTrendView: View {
 
     private var chartSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("每日 Token 趋势")
-                .font(.headline)
-
-            let models = Array(Set(viewModel.filteredData.map(\.displayName))).sorted()
-            let colorMap = Dictionary(uniqueKeysWithValues: models.enumerated().map { (i, model) in
+            let colorMap = Dictionary(uniqueKeysWithValues: viewModel.availableModels.enumerated().map { (i, model) in
                 (model, modelColors[i % modelColors.count])
             })
 
-            let metricValue: (DailyModelUsage) -> Int = {
-                switch viewModel.selectedMetric {
-                case .total: return $0.totalTokens
-                case .input: return $0.inputTokens
-                case .cacheHit: return $0.cacheReadTokens
-                case .output: return $0.outputTokens
+            let isCost = viewModel.chartMode == .cost
+            let pricingLookup = viewModel.pricingLookup
+            let metricValue: (DailyModelUsage) -> Double = { item in
+                if isCost {
+                    let key = "\(item.modelId)/\(item.variant)"
+                    let pricing = pricingLookup[key] ?? .defaults(modelId: item.modelId, variant: item.variant)
+                    switch viewModel.selectedMetric {
+                    case .total:
+                        return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+                            + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+                            + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+                    case .input:
+                        return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+                    case .cacheHit:
+                        return Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+                    case .output:
+                        return Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+                    }
+                } else {
+                    switch viewModel.selectedMetric {
+                    case .total: return Double(item.totalTokens)
+                    case .input: return Double(item.inputTokens)
+                    case .cacheHit: return Double(item.cacheReadTokens)
+                    case .output: return Double(item.outputTokens)
+                    }
                 }
             }
 
             Chart(viewModel.filteredData) { item in
                 LineMark(
                     x: .value("日期", item.date),
-                    y: .value("Tokens", metricValue(item))
+                    y: .value(isCost ? "费用" : "Tokens", metricValue(item))
                 )
                 .foregroundStyle(by: .value("Model", item.displayName))
 
                 PointMark(
                     x: .value("日期", item.date),
-                    y: .value("Tokens", metricValue(item))
+                    y: .value(isCost ? "费用" : "Tokens", metricValue(item))
                 )
                 .foregroundStyle(by: .value("Model", item.displayName))
                 .symbolSize(20)
@@ -164,7 +185,13 @@ struct DailyTrendView: View {
             }
             .chartYAxis {
                 AxisMarks { value in
-                    AxisValueLabel { Text(formatTokens(value.as(Int.self) ?? 0)) }
+                    AxisValueLabel {
+                        if isCost {
+                            Text(formatCost(value.as(Double.self) ?? 0))
+                        } else {
+                            Text(formatTokens(Int(value.as(Double.self) ?? 0)))
+                        }
+                    }
                 }
             }
             .frame(height: 300)
@@ -227,6 +254,16 @@ struct DailyTrendView: View {
             String(format: "%.0fK", Double(n) / 1_000)
         } else {
             "\(n)"
+        }
+    }
+
+    private func formatCost(_ value: Double) -> String {
+        if value < 0.01 {
+            String(format: "¥%.4f", value)
+        } else if value < 1 {
+            String(format: "¥%.2f", value)
+        } else {
+            String(format: "¥%.1f", value)
         }
     }
 }

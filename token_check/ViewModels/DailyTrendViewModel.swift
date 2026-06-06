@@ -17,8 +17,14 @@ class DailyTrendViewModel: ObservableObject {
         case output = "输出"
     }
 
-    @Published var timeMode: TimeMode = .last30
+    enum ChartMode: String, CaseIterable {
+        case token = "Token"
+        case cost = "费用"
+    }
+
+    @Published var timeMode: TimeMode = .last7
     @Published var selectedMetric: MetricType = .total
+    @Published var chartMode: ChartMode = .token
     @Published var selectedYear: String? = {
         String(Calendar.current.component(.year, from: Date()))
     }()
@@ -56,6 +62,27 @@ class DailyTrendViewModel: ObservableObject {
             return dailyData
         }
         return dailyData.filter { selectedModels.contains($0.displayName) }
+    }
+
+    var pricingLookup: [String: ModelPricingRule] {
+        ModelPricingStore.lookup(from: ModelPricingStore.load())
+    }
+
+    func cost(for item: DailyModelUsage, metric: MetricType) -> Double {
+        let key = "\(item.modelId)/\(item.variant)"
+        let pricing = pricingLookup[key] ?? .defaults(modelId: item.modelId, variant: item.variant)
+        switch metric {
+        case .total:
+            return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+                + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+                + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+        case .input:
+            return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+        case .cacheHit:
+            return Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+        case .output:
+            return Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+        }
     }
 
     var availableYears: [String] {
