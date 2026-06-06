@@ -38,6 +38,15 @@ final class AppSceneController {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var sceneController: AppSceneController?
 
+    let model = TokenViewModel()
+    let dwm = DesktopWidgetManager()
+    private var statusItemManager: StatusItemManager?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        dwm.setup(model: model)
+        statusItemManager = StatusItemManager(model: model, dwm: dwm)
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard let sceneController, !sceneController.hasVisibleMainWindow() else {
             return false
