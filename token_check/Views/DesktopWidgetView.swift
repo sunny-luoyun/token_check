@@ -32,9 +32,17 @@ struct DesktopWidgetView: View {
                         .foregroundStyle(.blue)
                         .font(.headline)
                         .labelStyle(.iconOnly)
-                    Text(formatTokens(usage.totalTokens))
+                    Text(formatTokens(model.adjustedTotal))
                         .font(.title2.monospaced().bold())
                         .foregroundStyle(.blue)
+                    if model.hasRollback {
+                        Image(systemName: "arrow.counterclockwise.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Text("+\(formatTokens(model.rollbackTotal))")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.red)
+                    }
                     Text(formatCost(usage.todayCost))
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
@@ -45,11 +53,11 @@ struct DesktopWidgetView: View {
                 .padding(.top, 12)
 
                 HStack(spacing: 0) {
-                    statItem("输入", formatTokens(usage.inputTokens), .blue)
+                    statItem("输入", formatTokens(model.adjustedInput), .blue)
                     Spacer()
-                    statItem("缓存", formatTokens(usage.cacheReadTokens), .purple)
+                    statItem("缓存", formatTokens(model.adjustedCacheRead), .purple)
                     Spacer()
-                    statItem("输出", formatTokens(usage.outputTokens), .green)
+                    statItem("输出", formatTokens(model.adjustedOutput), .green)
                     Spacer()
                     statItem("会话", "\(usage.sessionCount)", .orange)
                 }

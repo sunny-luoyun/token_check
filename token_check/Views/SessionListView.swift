@@ -46,18 +46,22 @@ struct SessionListView: View {
                         .width(160)
 
                         TableColumn("Input") { session in
-                            Text(formatNumber(session.tokensInput))
+                            let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
+                            let adjusted = session.tokensInput + (rollback?.tokensInput ?? 0)
+                            Text(formatNumber(adjusted))
                                 .font(.caption.monospaced())
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                         }
-                        .width(80)
+                        .width(90)
 
                         TableColumn("Output") { session in
-                            Text(formatNumber(session.tokensOutput))
+                            let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
+                            let adjusted = session.tokensOutput + (rollback?.tokensOutput ?? 0)
+                            Text(formatNumber(adjusted))
                                 .font(.caption.monospaced())
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                         }
-                        .width(80)
+                        .width(90)
 
                         TableColumn("Cost") { session in
                             Text(String(format: "$%.4f", session.cost))
@@ -77,6 +81,18 @@ struct SessionListView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .disabled(viewModel.isLoading)
+            }
+            ToolbarItem {
+                Toggle(isOn: $viewModel.showRollback) {
+                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                        .foregroundStyle(viewModel.showRollback ? .red : .secondary)
+                }
+                .toggleStyle(.button)
+                .help("显示回滚消耗")
+                .disabled(!viewModel.hasSessionRollback)
+                .onChange(of: viewModel.showRollback) { _, _ in
+                    viewModel.applyFilter()
+                }
             }
         }
         .onAppear {

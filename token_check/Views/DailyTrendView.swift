@@ -44,6 +44,20 @@ struct DailyTrendView: View {
 
                 modelLegend
                     .padding(.horizontal)
+
+                if viewModel.rolledBackTotal > 0 {
+                    HStack {
+                        Image(systemName: "arrow.counterclockwise.circle.fill")
+                            .foregroundStyle(.red)
+                            .font(.caption2)
+                        Text("含回滚 +\(formatTokens(viewModel.rolledBackTotal))")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 4)
+                }
             }
         }
         .navigationTitle("趋势")

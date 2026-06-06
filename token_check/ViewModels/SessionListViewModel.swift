@@ -6,6 +6,7 @@ class SessionListViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var searchText = ""
+    @Published var sessionRollbacks: [String: TokenData] = [:]
     @Published var periods: [TimePeriod] = []
     @Published var selectedYear: String? = {
         String(Calendar.current.component(.year, from: Date()))
@@ -17,6 +18,20 @@ class SessionListViewModel: ObservableObject {
         String(format: "%02d", Calendar.current.component(.day, from: Date()))
     }()
     @Published var availableDays: [String] = []
+    @Published var showRollback: Bool {
+        didSet { defaults.set(showRollback, forKey: Self.showRollbackKey) }
+    }
+
+    var hasSessionRollback: Bool {
+        sessionRollbacks.values.contains { $0.total > 0 }
+    }
+
+    private let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") ?? .standard
+    private static let showRollbackKey = "session_showRollback"
+
+    init() {
+        showRollback = (UserDefaults(suiteName: "group.com.luoyun.tokencheck") ?? .standard).object(forKey: Self.showRollbackKey) as? Bool ?? true
+    }
 
     var availableYears: [String] {
         let years = Set(periods.map(\.year))
@@ -46,6 +61,10 @@ class SessionListViewModel: ObservableObject {
             guard let self else { return }
             do {
                 let service = try DatabaseService()
+                if let db = service.db {
+                    TokenDeltaTracker.shared.refresh(db: db)
+                }
+                let rb = TokenDeltaTracker.shared.sessionRollbacks
                 let periods = try service.fetchAvailablePeriods()
                 let sessions = try service.fetchSessions(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay, limit: 200)
 
@@ -58,6 +77,7 @@ class SessionListViewModel: ObservableObject {
                     self.periods = periods
                     self.sessions = sessions
                     self.availableDays = ["全部"] + days
+                    self.sessionRollbacks = rb
                     self.isLoading = false
                 }
             } catch {

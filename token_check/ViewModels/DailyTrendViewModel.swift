@@ -40,6 +40,7 @@ class DailyTrendViewModel: ObservableObject {
     @Published var selectedModels: Set<String> = []
     @Published var isLoading = false
     @Published var error: String?
+    @Published var rolledBackTotal: Int = 0
 
     var days: Int {
         switch timeMode {
@@ -104,6 +105,10 @@ class DailyTrendViewModel: ObservableObject {
             guard let self else { return }
             do {
                 let service = try DatabaseService()
+                if let db = service.db {
+                    TokenDeltaTracker.shared.refresh(db: db)
+                }
+                let rbTotal = TokenDeltaTracker.shared.rollbackRecord.total
                 let periods = try service.fetchAvailablePeriods()
                 let pricingRules = ModelPricingStore.load()
                 let data: [DailyModelUsage]
@@ -128,6 +133,7 @@ class DailyTrendViewModel: ObservableObject {
                     self.periods = periods
                     self.dailyData = filledData
                     self.availableDays = ["全部"] + days
+                    self.rolledBackTotal = rbTotal
                     let availableModels = Set(filledData.map(\.displayName))
                     let preservedSelection = self.selectedModels.intersection(availableModels)
                     self.selectedModels = preservedSelection.isEmpty ? availableModels : preservedSelection

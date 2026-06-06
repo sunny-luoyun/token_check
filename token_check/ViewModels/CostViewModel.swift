@@ -18,6 +18,18 @@ class CostViewModel: ObservableObject {
     @Published var availableDays: [String] = []
     @Published var isLoading = false
     @Published var error: String?
+    @Published var hasRollback = false
+    @Published var rollbackTotal: Int = 0
+    @Published var showRollback: Bool {
+        didSet { defaults.set(showRollback, forKey: Self.showRollbackKey) }
+    }
+
+    private let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") ?? .standard
+    private static let showRollbackKey = "cost_showRollback"
+
+    init() {
+        showRollback = (UserDefaults(suiteName: "group.com.luoyun.tokencheck") ?? .standard).object(forKey: Self.showRollbackKey) as? Bool ?? true
+    }
 
     var availableYears: [String] {
         let years = Set(periods.map(\.year))
@@ -38,6 +50,10 @@ class CostViewModel: ObservableObject {
             guard let self else { return }
             do {
                 let service = try DatabaseService()
+                if let db = service.db {
+                    TokenDeltaTracker.shared.refresh(db: db)
+                }
+                let rb = TokenDeltaTracker.shared.rollbackRecord
                 let periods = try service.fetchAvailablePeriods()
                 let pricingRules = ModelPricingStore.load()
                 let breakdown = try service.fetchModelCostBreakdown(
@@ -49,6 +65,25 @@ class CostViewModel: ObservableObject {
                 let summary = CostSummary.from(breakdown: breakdown)
                 let pricingDescription = Self.makePricingDescription(for: breakdown)
 
+                let modelRb = TokenDeltaTracker.shared.modelRollbacks
+                let adjustedBreakdown: [ModelCostBreakdown] = breakdown.map { item in
+                    let rb = modelRb[item.id] ?? .zero
+                    return ModelCostBreakdown(
+                        id: item.id,
+                        modelId: item.modelId,
+                        variant: item.variant,
+                        sessions: item.sessions,
+                        cacheMissTokens: item.cacheMissTokens + rb.tokensInput,
+                        cacheHitTokens: item.cacheHitTokens + rb.tokensCacheRead,
+                        outputTokens: item.outputTokens + rb.tokensOutput,
+                        reasoningTokens: item.reasoningTokens + rb.tokensReasoning,
+                        pricing: item.pricing
+                    )
+                }
+                let useAdjusted = self.showRollback && rb.total > 0
+                let finalBreakdown = useAdjusted ? adjustedBreakdown : breakdown
+                let finalSummary = useAdjusted ? CostSummary.from(breakdown: adjustedBreakdown) : summary
+
                 var days: [String] = []
                 if let year = self.selectedYear, let month = self.selectedMonth {
                     days = try service.fetchAvailableDays(year: year, month: month)
@@ -56,10 +91,12 @@ class CostViewModel: ObservableObject {
 
                 DispatchQueue.main.async {
                     self.periods = periods
-                    self.summary = summary
-                    self.modelBreakdown = breakdown
+                    self.summary = finalSummary
+                    self.modelBreakdown = finalBreakdown
                     self.pricingDescription = pricingDescription
                     self.availableDays = ["全部"] + days
+                    self.hasRollback = rb.total > 0
+                    self.rollbackTotal = rb.total
                     self.isLoading = false
                 }
             } catch {

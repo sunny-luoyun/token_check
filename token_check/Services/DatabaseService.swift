@@ -19,7 +19,7 @@ enum DatabaseError: LocalizedError {
 }
 
 final class DatabaseService {
-    private var db: OpaquePointer?
+    internal var db: OpaquePointer?
 
     init() throws {
         let path = FileManager.default.homeDirectoryForCurrentUser

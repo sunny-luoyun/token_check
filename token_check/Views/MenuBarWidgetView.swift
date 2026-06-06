@@ -53,11 +53,21 @@ struct MenuBarWidgetView: View {
             HStack {
                 Image(systemName: "chart.bar.fill")
                     .foregroundStyle(.blue)
-                Text("今日用量")
-                    .font(.headline)
+                HStack(spacing: 4) {
+                    Text("今日用量")
+                        .font(.headline)
+                    if model.hasRollback {
+                        Image(systemName: "arrow.counterclockwise.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Text("+\(formatTokens(model.rollbackTotal))")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.red)
+                    }
+                }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text(formatTokens(usage.totalTokens))
+                    Text(formatTokens(model.adjustedTotal))
                         .font(.title2.monospaced().bold())
                     Text(formatCost(usage.todayCost))
                         .font(.caption2.monospaced())
@@ -66,11 +76,11 @@ struct MenuBarWidgetView: View {
             }
 
             HStack(spacing: 0) {
-                statItem("输入", formatTokens(usage.inputTokens), .blue)
+                statItem("输入", formatTokens(model.adjustedInput), .blue)
                 Spacer()
-                statItem("缓存", formatTokens(usage.cacheReadTokens), .purple)
+                statItem("缓存", formatTokens(model.adjustedCacheRead), .purple)
                 Spacer()
-                statItem("输出", formatTokens(usage.outputTokens), .green)
+                statItem("输出", formatTokens(model.adjustedOutput), .green)
                 Spacer()
                 statItem("会话", "\(usage.sessionCount)", .orange)
             }

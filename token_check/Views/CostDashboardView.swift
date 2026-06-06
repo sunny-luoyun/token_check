@@ -30,6 +30,19 @@ struct CostDashboardView: View {
 
                 summaryCards(summary: summary)
                     .padding(.horizontal)
+                    .overlay(alignment: .topTrailing) {
+                        if viewModel.hasRollback {
+                            HStack(spacing: 2) {
+                                Image(systemName: "arrow.counterclockwise.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                Text("+\(formatTokens(viewModel.rollbackTotal))")
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.red)
+                            }
+                            .offset(x: -4, y: 4)
+                        }
+                    }
 
                 Divider()
                     .padding(.vertical, 8)
@@ -44,12 +57,22 @@ struct CostDashboardView: View {
         .navigationTitle("费用")
         .toolbar {
             ToolbarItem {
-                Button(action: {
-                    viewModel.applyFilter()
-                }) {
+                Button(action: { viewModel.applyFilter() }) {
                     Image(systemName: "arrow.clockwise")
                 }
                 .disabled(viewModel.isLoading)
+            }
+            ToolbarItem {
+                Toggle(isOn: $viewModel.showRollback) {
+                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                        .foregroundStyle(viewModel.showRollback ? .red : .secondary)
+                }
+                .toggleStyle(.button)
+                .help("显示回滚消耗")
+                .disabled(!viewModel.hasRollback)
+                .onChange(of: viewModel.showRollback) { _, _ in
+                    viewModel.applyFilter()
+                }
             }
         }
         .onAppear {
