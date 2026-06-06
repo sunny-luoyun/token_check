@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarPopoverContent: View {
     @ObservedObject var model: TokenViewModel
     @ObservedObject var dwm: DesktopWidgetManager
+    let openMainWindow: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,6 +14,17 @@ struct MenuBarPopoverContent: View {
                 .padding(.vertical, 6)
 
             HStack {
+                Button {
+                    openMainWindow()
+                } label: {
+                    Label("打开主窗口", systemImage: "macwindow")
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .focusEffectDisabled()
+
+                Spacer()
+
                 Button {
                     dwm.toggle()
                 } label: {

@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
-final class StatusItemManager: NSObject {
+final class StatusItemManager: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let popover: NSPopover
     private let model: TokenViewModel
     private let dwm: DesktopWidgetManager
+    private var contextMenu: NSMenu?
 
     init(model: TokenViewModel, dwm: DesktopWidgetManager) {
         self.model = model
@@ -35,7 +36,11 @@ final class StatusItemManager: NSObject {
     }
 
     private func setupPopover() {
-        let contentView = MenuBarPopoverContent(model: model, dwm: dwm)
+        let contentView = MenuBarPopoverContent(
+            model: model,
+            dwm: dwm,
+            openMainWindow: { [weak self] in self?.reopenMainWindowFromMenuBar() }
+        )
         let hostingController = NSHostingController(rootView: contentView)
         if #available(macOS 14, *) {
             hostingController.sizingOptions = [.preferredContentSize]
@@ -65,7 +70,12 @@ final class StatusItemManager: NSObject {
     }
 
     private func showContextMenu() {
+        if popover.isShown {
+            popover.performClose(nil)
+        }
+
         let menu = NSMenu()
+        menu.delegate = self
         menu.autoenablesItems = false
 
         let widgetItem = NSMenuItem(
@@ -77,36 +87,62 @@ final class StatusItemManager: NSObject {
         widgetItem.state = dwm.isVisible ? .on : .off
         menu.addItem(widgetItem)
 
-        menu.addItem(NSMenuItem(
-            title: "设置...",
-            action: #selector(openSettings),
-            keyEquivalent: ","
-        ))
+        let activateItem = NSMenuItem(
+            title: "激活窗口",
+            action: #selector(activateMainWindow),
+            keyEquivalent: ""
+        )
+        activateItem.target = self
+        menu.addItem(activateItem)
 
-        menu.addItem(NSMenuItem(
+        let quitItem = NSMenuItem(
             title: "退出应用",
             action: #selector(quitApp),
             keyEquivalent: "q"
-        ))
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
 
-        guard let button = statusItem.button else { return }
-        if #available(macOS 14, *) {
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
-        } else {
-            guard let event = NSApp.currentEvent else { return }
-            NSMenu.popUpContextMenu(menu, with: event, for: button)
-        }
+        contextMenu = menu
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
     }
 
     @objc private func toggleWidget() {
         dwm.toggle()
     }
 
-    @objc private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    @objc private func activateMainWindow() {
+        reopenMainWindowFromMenuBar()
+    }
+
+    private func reopenMainWindowFromMenuBar() {
+        if popover.isShown {
+            popover.performClose(nil)
+        }
+
+        if let menu = contextMenu {
+            menu.cancelTracking()
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.restoreMainWindow()
+        }
+    }
+
+    private func restoreMainWindow() {
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              let sceneController = appDelegate.sceneController else { return }
+        sceneController.restoreMainWindow()
     }
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard contextMenu === menu else { return }
+        statusItem.menu = nil
+        contextMenu = nil
     }
 }

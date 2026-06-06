@@ -1,27 +1,19 @@
 import AppKit
 import SwiftUI
 
-final class AppSceneController {
+final class AppSceneController: NSObject, NSWindowDelegate {
     static let mainWindowIdentifier = NSUserInterfaceItemIdentifier("main-window")
 
-    var openMainWindow: (() -> Void)?
-    private weak var mainWindow: NSWindow?
+    private var mainWindow: NSWindow?
+    private var allowsNextWindowClose = false
 
-    func configureMainWindow(_ window: NSWindow?) {
-        guard let window else { return }
-        window.identifier = Self.mainWindowIdentifier
-        mainWindow = window
+    func showMainWindow() {
+        let window = resolvedMainWindow() ?? makeMainWindow()
+        reveal(window)
     }
 
     func restoreMainWindow() {
-        if let mainWindow {
-            mainWindow.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        openMainWindow?()
-        NSApp.activate(ignoringOtherApps: true)
+        showMainWindow()
     }
 
     func hasVisibleMainWindow() -> Bool {
@@ -33,6 +25,117 @@ final class AppSceneController {
             window.identifier == Self.mainWindowIdentifier && window.isVisible
         }
     }
+
+    private func resolvedMainWindow() -> NSWindow? {
+        if let mainWindow, NSApp.windows.contains(where: { $0 === mainWindow }) {
+            return mainWindow
+        }
+
+        if let window = NSApp.windows.first(where: { $0.identifier == Self.mainWindowIdentifier }) {
+            mainWindow = window
+            return window
+        }
+
+        mainWindow = nil
+        return nil
+    }
+
+    private func makeMainWindow() -> NSWindow {
+        let hostingController = NSHostingController(rootView: ContentView())
+        let window = NSWindow(contentViewController: hostingController)
+        window.identifier = Self.mainWindowIdentifier
+        window.title = "Token Check"
+        window.styleMask.insert(.closable)
+        window.styleMask.insert(.miniaturizable)
+        window.styleMask.insert(.resizable)
+        window.styleMask.insert(.titled)
+        window.setContentSize(NSSize(width: 800, height: 600))
+        window.minSize = NSSize(width: 800, height: 500)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.delegate = self
+        if let closeButton = window.standardWindowButton(.closeButton) {
+            closeButton.target = self
+            closeButton.action = #selector(handleMainWindowClose)
+        }
+        mainWindow = window
+        return window
+    }
+
+    private func reveal(_ window: NSWindow) {
+        applyActivationPolicyForCurrentVisibility(showingMainWindow: true)
+
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        window.orderFrontRegardless()
+        DispatchQueue.main.async {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+        }
+    }
+
+    private func applyActivationPolicyForCurrentVisibility(showingMainWindow: Bool) {
+        let showDockIcon = UserDefaults.standard.bool(forKey: "showDockIcon")
+        let policy: NSApplication.ActivationPolicy
+
+        if showDockIcon || showingMainWindow {
+            policy = .regular
+        } else {
+            policy = .accessory
+        }
+
+        NSApp.setActivationPolicy(policy)
+    }
+
+    @objc private func handleMainWindowClose() {
+        guard let window = resolvedMainWindow() else { return }
+
+        if UserDefaults.standard.bool(forKey: "showDockIcon") == false {
+            window.orderOut(nil)
+            applyActivationPolicyForCurrentVisibility(showingMainWindow: false)
+            return
+        }
+
+        allowsNextWindowClose = true
+        window.performClose(nil)
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender.identifier == Self.mainWindowIdentifier else {
+            return true
+        }
+
+        if allowsNextWindowClose {
+            allowsNextWindowClose = false
+            mainWindow = nil
+            return true
+        }
+
+        guard UserDefaults.standard.bool(forKey: "showDockIcon") == false else {
+            mainWindow = nil
+            return true
+        }
+
+        sender.orderOut(nil)
+        applyActivationPolicyForCurrentVisibility(showingMainWindow: false)
+        return false
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window.identifier == Self.mainWindowIdentifier,
+              mainWindow === window else {
+            return
+        }
+
+        mainWindow = nil
+        applyActivationPolicyForCurrentVisibility(showingMainWindow: false)
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -43,9 +146,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemManager: StatusItemManager?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
+        NSApp.setActivationPolicy(.regular)
         dwm.setup(model: model)
         statusItemManager = StatusItemManager(model: model, dwm: dwm)
+        DispatchQueue.main.async {
+            self.sceneController?.showMainWindow()
+            if showDockIcon == false,
+               self.sceneController?.hasVisibleMainWindow() == false {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
     }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard let sceneController, !sceneController.hasVisibleMainWindow() else {
@@ -68,39 +186,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         DispatchQueue.main.async {
             sceneController.restoreMainWindow()
-        }
-    }
-}
-
-struct MainWindowSceneView: View {
-    @Environment(\.openWindow) private var openWindow
-    let sceneController: AppSceneController
-
-    var body: some View {
-        ContentView()
-            .background(MainWindowAccessor(sceneController: sceneController))
-            .onAppear {
-                sceneController.openMainWindow = {
-                    openWindow(id: "main")
-                }
-            }
-    }
-}
-
-struct MainWindowAccessor: NSViewRepresentable {
-    let sceneController: AppSceneController
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            sceneController.configureMainWindow(view.window)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            sceneController.configureMainWindow(nsView.window)
         }
     }
 }

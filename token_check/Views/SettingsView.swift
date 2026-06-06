@@ -12,10 +12,16 @@ struct SettingsView: View {
             Section("外观") {
                 Toggle("显示 Dock 图标", isOn: $showDockIcon)
                     .onChange(of: showDockIcon) { _, newValue in
-                        NSApp.setActivationPolicy(newValue ? .regular : .accessory)
                         if newValue {
+                            NSApp.setActivationPolicy(.regular)
                             NSApp.activate(ignoringOtherApps: true)
+                            return
                         }
+
+                        let hasVisibleMainWindow = NSApp.windows.contains { window in
+                            window.identifier?.rawValue == "main-window" && window.isVisible
+                        }
+                        NSApp.setActivationPolicy(hasVisibleMainWindow ? .regular : .accessory)
                     }
             }
 
