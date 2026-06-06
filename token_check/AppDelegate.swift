@@ -1,15 +1,26 @@
 import AppKit
 import SwiftUI
 
-final class AppSceneController: NSObject, NSWindowDelegate {
+private final class MainPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+final class MainPanelController: NSObject, NSWindowDelegate {
     static let mainWindowIdentifier = NSUserInterfaceItemIdentifier("main-window")
 
-    private var mainWindow: NSWindow?
+    private var mainWindow: MainPanel?
     private var allowsNextWindowClose = false
 
     func showMainWindow() {
         let window = resolvedMainWindow() ?? makeMainWindow()
         reveal(window)
+    }
+
+    func hideMainWindow() {
+        guard let window = resolvedMainWindow() else { return }
+        window.orderOut(nil)
+        applyActivationPolicyForCurrentVisibility(showingMainWindow: false)
     }
 
     func restoreMainWindow() {
@@ -26,12 +37,12 @@ final class AppSceneController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func resolvedMainWindow() -> NSWindow? {
+    private func resolvedMainWindow() -> MainPanel? {
         if let mainWindow, NSApp.windows.contains(where: { $0 === mainWindow }) {
             return mainWindow
         }
 
-        if let window = NSApp.windows.first(where: { $0.identifier == Self.mainWindowIdentifier }) {
+        if let window = NSApp.windows.first(where: { $0.identifier == Self.mainWindowIdentifier }) as? MainPanel {
             mainWindow = window
             return window
         }
@@ -40,20 +51,25 @@ final class AppSceneController: NSObject, NSWindowDelegate {
         return nil
     }
 
-    private func makeMainWindow() -> NSWindow {
+    private func makeMainWindow() -> MainPanel {
         let hostingController = NSHostingController(rootView: ContentView())
-        let window = NSWindow(contentViewController: hostingController)
+        let window = MainPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
         window.identifier = Self.mainWindowIdentifier
         window.title = "Token Check"
-        window.styleMask.insert(.closable)
-        window.styleMask.insert(.miniaturizable)
-        window.styleMask.insert(.resizable)
-        window.styleMask.insert(.titled)
         window.setContentSize(NSSize(width: 800, height: 600))
         window.minSize = NSSize(width: 800, height: 500)
         window.center()
         window.isReleasedWhenClosed = false
         window.isRestorable = false
+        window.hidesOnDeactivate = false
+        window.isFloatingPanel = false
+        window.animationBehavior = .utilityWindow
         window.delegate = self
         if let closeButton = window.standardWindowButton(.closeButton) {
             closeButton.target = self
@@ -63,7 +79,7 @@ final class AppSceneController: NSObject, NSWindowDelegate {
         return window
     }
 
-    private func reveal(_ window: NSWindow) {
+    private func reveal(_ window: MainPanel) {
         applyActivationPolicyForCurrentVisibility(showingMainWindow: true)
 
         if window.isMiniaturized {
@@ -96,8 +112,7 @@ final class AppSceneController: NSObject, NSWindowDelegate {
         guard let window = resolvedMainWindow() else { return }
 
         if UserDefaults.standard.bool(forKey: "showDockIcon") == false {
-            window.orderOut(nil)
-            applyActivationPolicyForCurrentVisibility(showingMainWindow: false)
+            hideMainWindow()
             return
         }
 
@@ -139,7 +154,7 @@ final class AppSceneController: NSObject, NSWindowDelegate {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    var sceneController: AppSceneController?
+    var mainPanelController: MainPanelController?
 
     let model = TokenViewModel()
     let dwm = DesktopWidgetManager()
@@ -151,9 +166,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dwm.setup(model: model)
         statusItemManager = StatusItemManager(model: model, dwm: dwm)
         DispatchQueue.main.async {
-            self.sceneController?.showMainWindow()
+            self.mainPanelController?.showMainWindow()
             if showDockIcon == false,
-               self.sceneController?.hasVisibleMainWindow() == false {
+               self.mainPanelController?.hasVisibleMainWindow() == false {
                 NSApp.setActivationPolicy(.accessory)
             }
         }
@@ -166,12 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard let sceneController, !sceneController.hasVisibleMainWindow() else {
+        guard let mainPanelController, !mainPanelController.hasVisibleMainWindow() else {
             return false
         }
 
         DispatchQueue.main.async {
-            sceneController.restoreMainWindow()
+            mainPanelController.showMainWindow()
         }
 
         return true
@@ -179,13 +194,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         guard UserDefaults.standard.bool(forKey: "showDockIcon") == false,
-              let sceneController,
-              !sceneController.hasVisibleMainWindow() else {
+              let mainPanelController,
+              !mainPanelController.hasVisibleMainWindow() else {
             return
         }
 
         DispatchQueue.main.async {
-            sceneController.restoreMainWindow()
+            mainPanelController.showMainWindow()
         }
     }
 }

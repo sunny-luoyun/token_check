@@ -3,10 +3,10 @@ import SwiftUI
 @main
 struct token_checkApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    private let sceneController = AppSceneController()
+    private let mainPanelController = MainPanelController()
 
     init() {
-        appDelegate.sceneController = sceneController
+        appDelegate.mainPanelController = mainPanelController
     }
 
     var body: some Scene {

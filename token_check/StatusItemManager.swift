@@ -132,8 +132,8 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
 
     private func restoreMainWindow() {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
-              let sceneController = appDelegate.sceneController else { return }
-        sceneController.restoreMainWindow()
+              let mainPanelController = appDelegate.mainPanelController else { return }
+        mainPanelController.showMainWindow()
     }
 
     @objc private func quitApp() {

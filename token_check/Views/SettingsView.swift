@@ -18,9 +18,8 @@ struct SettingsView: View {
                             return
                         }
 
-                        let hasVisibleMainWindow = NSApp.windows.contains { window in
-                            window.identifier?.rawValue == "main-window" && window.isVisible
-                        }
+                        let appDelegate = NSApp.delegate as? AppDelegate
+                        let hasVisibleMainWindow = appDelegate?.mainPanelController?.hasVisibleMainWindow() == true
                         NSApp.setActivationPolicy(hasVisibleMainWindow ? .regular : .accessory)
                     }
             }
