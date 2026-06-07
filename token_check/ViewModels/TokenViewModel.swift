@@ -22,18 +22,22 @@ class TokenViewModel: ObservableObject {
             if let ds = try? DatabaseService(), let db = ds.db {
                 TokenDeltaTracker.shared.refresh(db: db)
             }
-            let rb = TokenDeltaTracker.shared.rollbackRecord
-            let hasRb = rb.total > 0
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+            df.locale = Locale(identifier: "en_US_POSIX")
+            let todayKey = df.string(from: Date())
+            let todayRb = TokenDeltaTracker.shared.dailyRollbacks[todayKey] ?? .zero
+            let hasRb = todayRb.total > 0
             let result = service.fetchTodayUsage()
             DispatchQueue.main.async {
                 self.hasRollback = hasRb
-                self.rollbackTotal = rb.total
+                self.rollbackTotal = todayRb.total
                 if let result {
                     self.usage = result
-                    self.adjustedInput = result.inputTokens + rb.rolledBackInput
-                    self.adjustedOutput = result.outputTokens + rb.rolledBackOutput
-                    self.adjustedCacheRead = result.cacheReadTokens + rb.rolledBackCacheRead
-                    self.adjustedTotal = result.totalTokens + rb.total
+                    self.adjustedInput = result.inputTokens + todayRb.rolledBackInput
+                    self.adjustedOutput = result.outputTokens + todayRb.rolledBackOutput
+                    self.adjustedCacheRead = result.cacheReadTokens + todayRb.rolledBackCacheRead
+                    self.adjustedTotal = result.totalTokens + todayRb.total
                 } else {
                     self.error = "无法读取数据库"
                 }

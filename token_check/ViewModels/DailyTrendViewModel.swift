@@ -108,7 +108,12 @@ class DailyTrendViewModel: ObservableObject {
                 if let db = service.db {
                     TokenDeltaTracker.shared.refresh(db: db)
                 }
-                let rbTotal = TokenDeltaTracker.shared.rollbackRecord.total
+                let rbTotal: Int
+                if self.isMonthlyMode {
+                    rbTotal = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay).total
+                } else {
+                    rbTotal = TokenDeltaTracker.shared.rollback(days: self.days).total
+                }
                 let periods = try service.fetchAvailablePeriods()
                 let pricingRules = ModelPricingStore.load()
                 let data: [DailyModelUsage]

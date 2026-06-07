@@ -53,7 +53,7 @@ class CostViewModel: ObservableObject {
                 if let db = service.db {
                     TokenDeltaTracker.shared.refresh(db: db)
                 }
-                let rb = TokenDeltaTracker.shared.rollbackRecord
+                let rb = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                 let periods = try service.fetchAvailablePeriods()
                 let pricingRules = ModelPricingStore.load()
                 let breakdown = try service.fetchModelCostBreakdown(
@@ -65,7 +65,7 @@ class CostViewModel: ObservableObject {
                 let summary = CostSummary.from(breakdown: breakdown)
                 let pricingDescription = Self.makePricingDescription(for: breakdown)
 
-                let modelRb = TokenDeltaTracker.shared.modelRollbacks
+                let modelRb = TokenDeltaTracker.shared.modelRollbacks(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                 let adjustedBreakdown: [ModelCostBreakdown] = breakdown.map { item in
                     let rb = modelRb[item.id] ?? .zero
                     return ModelCostBreakdown(
