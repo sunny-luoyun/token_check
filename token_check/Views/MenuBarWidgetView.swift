@@ -72,6 +72,14 @@ struct MenuBarWidgetView: View {
                     Text(formatCost(usage.todayCost))
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
+                    if model.deepseekLoading {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                    } else if let balance = model.deepseekBalance {
+                        Text("余额 ¥\(balance)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.green)
+                    }
                 }
             }
 

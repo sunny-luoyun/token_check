@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("showDockIcon") private var showDockIcon = true
     @AppStorage("refreshMinutes") private var refreshMinutes = 5
+    @AppStorage("deepseekApiKey") private var deepseekApiKey = ""
     @State private var pricingRules: [ModelPricingRule] = []
     @State private var pricingError: String?
     @State private var isLoadingPricing = false
@@ -34,6 +35,15 @@ struct SettingsView: View {
                     Text("30 分钟").tag(30)
                 }
                 Text("修改后立即生效")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("DeepSeek") {
+                SecureField("DeepSeek API Key", text: $deepseekApiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption.monospaced())
+                Text("用于在小组件中显示账户余额。Key 仅存在本地，不会上传。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

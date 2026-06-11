@@ -33,6 +33,7 @@ final class DesktopWidgetManager: ObservableObject {
 
         let content = NSHostingController(rootView: DesktopWidgetView(model: model))
         let win = DesktopWidgetWindow(contentViewController: content)
+        content.sizingOptions = []
         win.identifier = NSUserInterfaceItemIdentifier("desktop-widget")
         win.level = desktopWidgetLevel
         win.styleMask = [.titled, .fullSizeContentView]
@@ -40,20 +41,23 @@ final class DesktopWidgetManager: ObservableObject {
         win.titleVisibility = .hidden
         win.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
         win.isReleasedWhenClosed = false
-        win.setContentSize(NSSize(width: 340, height: 128))
         win.backgroundColor = NSColor.clear
         win.isOpaque = false
         win.title = ""
         win.ignoresMouseEvents = true
         win.hasShadow = true
 
-        if let saved = UserDefaults.standard.string(forKey: "desktop_widget_frame") {
-            win.setFrame(NSRectFromString(saved), display: true)
+        let savedFrame = UserDefaults.standard.string(forKey: "desktop_widget_frame")
+            .flatMap { NSRectFromString($0) }
+        let width: CGFloat = 340
+        let height: CGFloat = 195
+        if let saved = savedFrame, saved.size.width > 0 {
+            win.setFrame(NSRect(x: saved.minX, y: saved.minY, width: width, height: height), display: true)
         } else {
             let screen = NSScreen.main?.visibleFrame ?? .zero
-            let x = screen.maxX - 360
-            let y = screen.maxY - 150
-            win.setFrame(NSRect(x: x, y: y, width: 340, height: 128), display: false)
+            let x = screen.maxX - width - 20
+            let y = screen.maxY - height - 22
+            win.setFrame(NSRect(x: x, y: y, width: width, height: height), display: false)
         }
 
         NotificationCenter.default.addObserver(

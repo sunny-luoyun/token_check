@@ -11,12 +11,16 @@ class TokenViewModel: ObservableObject {
     @Published var adjustedOutput: Int = 0
     @Published var adjustedCacheRead: Int = 0
     @Published var adjustedTotal: Int = 0
+    @Published var deepseekBalance: String?
+    @Published var deepseekLoading = false
 
     private let service = WidgetDataService()
 
     func refresh() {
         isLoading = true
         error = nil
+        let apiKey = UserDefaults.standard.string(forKey: "deepseekApiKey") ?? ""
+        deepseekLoading = !apiKey.isEmpty
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             if let ds = try? DatabaseService(), let db = ds.db {
@@ -29,6 +33,17 @@ class TokenViewModel: ObservableObject {
             let todayRb = TokenDeltaTracker.shared.dailyRollbacks[todayKey] ?? .zero
             let hasRb = todayRb.total > 0
             let result = service.fetchTodayUsage()
+
+            if !apiKey.isEmpty {
+                Task {
+                    let balance = await DeepSeekBalanceService.shared.fetchBalance(apiKey: apiKey)
+                    await MainActor.run {
+                        self.deepseekBalance = balance
+                        self.deepseekLoading = false
+                    }
+                }
+            }
+
             DispatchQueue.main.async {
                 self.hasRollback = hasRb
                 self.rollbackTotal = todayRb.total
@@ -42,6 +57,10 @@ class TokenViewModel: ObservableObject {
                     self.error = "无法读取数据库"
                 }
                 self.isLoading = false
+                if apiKey.isEmpty {
+                    self.deepseekBalance = nil
+                    self.deepseekLoading = false
+                }
             }
         }
     }

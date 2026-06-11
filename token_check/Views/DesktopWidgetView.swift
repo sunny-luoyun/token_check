@@ -48,9 +48,17 @@ struct DesktopWidgetView: View {
                         .foregroundStyle(.secondary)
                         .padding(.leading, 4)
                     Spacer()
+                    if model.deepseekLoading {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                    } else if let balance = model.deepseekBalance {
+                        Text("DeepSeek余额 ¥\(balance)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.green)
+                    }
                 }
                 .padding(.horizontal, 14)
-                .padding(.top, 12)
+                .padding(.top, 6)
 
                 HStack(spacing: 0) {
                     statItem("输入", formatTokens(model.adjustedInput), .blue)
@@ -63,12 +71,11 @@ struct DesktopWidgetView: View {
                 }
                 .font(.caption2)
                 .padding(.horizontal, 14)
-                .padding(.top, 6)
 
                 if !usage.dailyTokens.isEmpty {
                     Divider()
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 3)
 
                     HStack(spacing: 0) {
                         Text("近7天")
@@ -82,24 +89,25 @@ struct DesktopWidgetView: View {
                     .padding(.horizontal, 14)
 
                     let maxVal = max(usage.dailyTokens.map(\.totalTokens).max() ?? 1, 1)
-                    HStack(spacing: 2) {
-                        ForEach(usage.dailyTokens) { item in
-                            let ratio = CGFloat(item.totalTokens) / CGFloat(maxVal)
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(.blue.gradient)
-                                .frame(maxHeight: max(4, ratio * 18))
-                                .frame(maxHeight: 18, alignment: .bottom)
+                    GeometryReader { geo in
+                        HStack(spacing: 2) {
+                            ForEach(usage.dailyTokens) { item in
+                                let ratio = CGFloat(item.totalTokens) / CGFloat(maxVal)
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(.blue.gradient)
+                                    .frame(height: max(4, ratio * geo.size.height))
+                                    .frame(maxHeight: .infinity, alignment: .bottom)
+                            }
                         }
                     }
                     .padding(.horizontal, 14)
-                    .padding(.top, 4)
                     .padding(.bottom, 6)
                 }
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 2)
         .onAppear {
             model.refresh()
