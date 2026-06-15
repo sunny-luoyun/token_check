@@ -4,11 +4,19 @@ import SQLite3
 final class TokenDeltaTracker {
     static let shared = TokenDeltaTracker()
 
-    private(set) var rollbackRecord = RollbackRecord.zero
-    private(set) var sessionRollbacks: [String: TokenData] = [:]
-    private(set) var modelRollbacks: [String: TokenData] = [:]
-    private(set) var dailyRollbacks: [String: RollbackRecord] = [:]
-    private(set) var dailyModelRollbacks: [String: [String: TokenData]] = [:]
+    private let queue = DispatchQueue(label: "com.luoyun.tokencheck.delta-tracker")
+
+    private var _rollbackRecord = RollbackRecord.zero
+    private var _sessionRollbacks: [String: TokenData] = [:]
+    private var _modelRollbacks: [String: TokenData] = [:]
+    private var _dailyRollbacks: [String: RollbackRecord] = [:]
+    private var _dailyModelRollbacks: [String: [String: TokenData]] = [:]
+
+    var rollbackRecord: RollbackRecord { queue.sync { _rollbackRecord } }
+    var sessionRollbacks: [String: TokenData] { queue.sync { _sessionRollbacks } }
+    var modelRollbacks: [String: TokenData] { queue.sync { _modelRollbacks } }
+    var dailyRollbacks: [String: RollbackRecord] { queue.sync { _dailyRollbacks } }
+    var dailyModelRollbacks: [String: [String: TokenData]] { queue.sync { _dailyModelRollbacks } }
 
     var hasRollbackData: Bool {
         rollbackRecord.total > 0
@@ -123,11 +131,13 @@ final class TokenDeltaTracker {
             }
         }
 
-        rollbackRecord = rb
-        sessionRollbacks = sRb
-        modelRollbacks = mRb
-        dailyRollbacks = dRb
-        dailyModelRollbacks = dMRb
+        queue.sync {
+            _rollbackRecord = rb
+            _sessionRollbacks = sRb
+            _modelRollbacks = mRb
+            _dailyRollbacks = dRb
+            _dailyModelRollbacks = dMRb
+        }
     }
 
     func rollback(year: String?, month: String?, day: String?) -> RollbackRecord {
