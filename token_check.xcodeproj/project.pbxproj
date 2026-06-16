@@ -6,48 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		6E5B31B92FD27D410055EA29 /* TokenStatsWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 6E5B31AE2FD27D410055EA1E /* TokenStatsWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-/* End PBXBuildFile section */
 
-/* Begin PBXContainerItemProxy section */
-		6E5B31B82FD27D410055EA28 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 6E5B31972FD27D400055EA1C /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 6E5B31AD2FD27D410055EA1D;
-			remoteInfo = TokenStatsWidget;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		6E5B31B62FD27D410055EA26 /* Embed App Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				6E5B31B92FD27D410055EA29 /* TokenStatsWidget.appex in Embed App Extensions */,
-			);
-			name = "Embed App Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		6E5B319F2FD27D400055EA1C /* token_check.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = token_check.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		6E5B31AE2FD27D410055EA1E /* TokenStatsWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TokenStatsWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		6EF0C0012FD300000055EA30 /* Exceptions for "TokenStatsWidget" folder in "TokenStatsWidget" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				WidgetExtension.plist,
-			);
-			target = 6E5B31AD2FD27D410055EA1D /* TokenStatsWidget */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6E5B31A12FD27D400055EA1C /* token_check */ = {
@@ -55,25 +18,10 @@
 			path = token_check;
 			sourceTree = "<group>";
 		};
-		6E5B31AF2FD27D410055EA1F /* TokenStatsWidget */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				6EF0C0012FD300000055EA30 /* Exceptions for "TokenStatsWidget" folder in "TokenStatsWidget" target */,
-			);
-			path = TokenStatsWidget;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		6E5B319C2FD27D400055EA1C /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		6E5B31B12FD27D410055EA21 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -87,7 +35,6 @@
 			isa = PBXGroup;
 			children = (
 				6E5B31A12FD27D400055EA1C /* token_check */,
-				6E5B31AF2FD27D410055EA1F /* TokenStatsWidget */,
 				6E5B31A02FD27D400055EA1C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -96,7 +43,6 @@
 			isa = PBXGroup;
 			children = (
 				6E5B319F2FD27D400055EA1C /* token_check.app */,
-				6E5B31AE2FD27D410055EA1E /* TokenStatsWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -111,12 +57,10 @@
 				6E5B319B2FD27D400055EA1C /* Sources */,
 				6E5B319C2FD27D400055EA1C /* Frameworks */,
 				6E5B319D2FD27D400055EA1C /* Resources */,
-				6E5B31B62FD27D410055EA26 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				6E5B31B72FD27D410055EA27 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				6E5B31A12FD27D400055EA1C /* token_check */,
@@ -127,28 +71,6 @@
 			productName = token_check;
 			productReference = 6E5B319F2FD27D400055EA1C /* token_check.app */;
 			productType = "com.apple.product-type.application";
-		};
-		6E5B31AD2FD27D410055EA1D /* TokenStatsWidget */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 6E5B31B52FD27D410055EA25 /* Build configuration list for PBXNativeTarget "TokenStatsWidget" */;
-			buildPhases = (
-				6E5B31B02FD27D410055EA20 /* Sources */,
-				6E5B31B12FD27D410055EA21 /* Frameworks */,
-				6E5B31B22FD27D410055EA22 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				6E5B31AF2FD27D410055EA1F /* TokenStatsWidget */,
-			);
-			name = TokenStatsWidget;
-			packageProductDependencies = (
-			);
-			productName = TokenStatsWidget;
-			productReference = 6E5B31AE2FD27D410055EA1E /* TokenStatsWidget.appex */;
-			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -161,9 +83,6 @@
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					6E5B319E2FD27D400055EA1C = {
-						CreatedOnToolsVersion = 26.5;
-					};
-					6E5B31AD2FD27D410055EA1D = {
 						CreatedOnToolsVersion = 26.5;
 					};
 				};
@@ -183,20 +102,12 @@
 			projectRoot = "";
 			targets = (
 				6E5B319E2FD27D400055EA1C /* token_check */,
-				6E5B31AD2FD27D410055EA1D /* TokenStatsWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		6E5B319D2FD27D400055EA1C /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		6E5B31B22FD27D410055EA22 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -213,22 +124,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		6E5B31B02FD27D410055EA20 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		6E5B31B72FD27D410055EA27 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 6E5B31AD2FD27D410055EA1D /* TokenStatsWidget */;
-			targetProxy = 6E5B31B82FD27D410055EA28 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		6E5B31A82FD27D410055EA1C /* Debug */ = {
@@ -433,58 +329,6 @@
 			};
 			name = Release;
 		};
-		6E5B31B32FD27D410055EA23 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = TokenStatsWidget/TokenStatsWidget.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 29BUR5QVZC;
-				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = TokenStatsWidget/WidgetExtension.plist;
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "-lsqlite3";
-				PRODUCT_BUNDLE_IDENTIFIER = com.luoyun.tokencheck.tokenstatswidget;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 6;
-			};
-			name = Debug;
-		};
-		6E5B31B42FD27D410055EA24 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = TokenStatsWidget/TokenStatsWidget.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 29BUR5QVZC;
-				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = TokenStatsWidget/WidgetExtension.plist;
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "-lsqlite3";
-				PRODUCT_BUNDLE_IDENTIFIER = com.luoyun.tokencheck.tokenstatswidget;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 6;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -502,15 +346,6 @@
 			buildConfigurations = (
 				6E5B31AB2FD27D410055EA1C /* Debug */,
 				6E5B31AC2FD27D410055EA1C /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		6E5B31B52FD27D410055EA25 /* Build configuration list for PBXNativeTarget "TokenStatsWidget" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				6E5B31B32FD27D410055EA23 /* Debug */,
-				6E5B31B42FD27D410055EA24 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
