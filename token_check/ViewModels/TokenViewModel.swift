@@ -26,12 +26,12 @@ class TokenViewModel: ObservableObject {
     }
 
     func refresh(showLoading: Bool = true) {
+        let apiKey = UserDefaults.standard.string(forKey: "deepseekApiKey") ?? ""
         if showLoading {
             isLoading = true
+            deepseekLoading = !apiKey.isEmpty
         }
         error = nil
-        let apiKey = UserDefaults.standard.string(forKey: "deepseekApiKey") ?? ""
-        deepseekLoading = !apiKey.isEmpty
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             if let ds = try? DatabaseService(), let db = ds.db {
