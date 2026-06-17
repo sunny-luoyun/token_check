@@ -21,12 +21,14 @@ class TokenViewModel: ObservableObject {
         DatabaseFileWatcher.shared.startWatching()
         fileWatcherCancellable = DatabaseFileWatcher.shared.publisher
             .sink { [weak self] in
-                self?.refresh()
+                self?.refresh(showLoading: false)
             }
     }
 
-    func refresh() {
-        isLoading = true
+    func refresh(showLoading: Bool = true) {
+        if showLoading {
+            isLoading = true
+        }
         error = nil
         let apiKey = UserDefaults.standard.string(forKey: "deepseekApiKey") ?? ""
         deepseekLoading = !apiKey.isEmpty

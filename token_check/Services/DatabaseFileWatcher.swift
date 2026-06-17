@@ -10,7 +10,7 @@ final class DatabaseFileWatcher: ObservableObject {
 
     var publisher: AnyPublisher<Void, Never> {
         subject
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .debounce(for: .seconds(5), scheduler: DispatchQueue.main)
             .eraseToAnyPublisher()
     }
 
