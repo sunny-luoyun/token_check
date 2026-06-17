@@ -13,34 +13,38 @@ struct CostDashboardView: View {
             } else if let error = viewModel.error {
                 errorView(error)
             } else if let summary = viewModel.summary {
-                timeFilterBar
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        timeFilterBar
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
 
-                summaryCards(summary: summary)
-                    .padding(.horizontal)
-                    .overlay(alignment: .topTrailing) {
-                        if viewModel.hasRollback {
-                            HStack(spacing: 2) {
-                                Image(systemName: "arrow.counterclockwise.circle.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                                Text("+\(formatTokens(viewModel.rollbackTotal))")
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.red)
+                        summaryCards(summary: summary)
+                            .padding(.horizontal)
+                            .overlay(alignment: .topTrailing) {
+                                if viewModel.hasRollback {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "arrow.counterclockwise.circle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.red)
+                                        Text("+\(formatTokens(viewModel.rollbackTotal))")
+                                            .font(.caption2.monospaced())
+                                            .foregroundStyle(.red)
+                                    }
+                                    .offset(x: -4, y: 4)
+                                }
                             }
-                            .offset(x: -4, y: 4)
-                        }
+
+                        Divider()
+                            .padding(.vertical, 8)
+
+                        costTable
+                            .padding(.horizontal)
+
+                        costFooter(summary: summary)
+                            .padding()
                     }
-
-                Divider()
-                    .padding(.vertical, 8)
-
-                costTable
-                    .padding(.horizontal)
-
-                costFooter(summary: summary)
-                    .padding()
+                }
             }
         }
         .navigationTitle("费用")
@@ -170,7 +174,7 @@ struct CostDashboardView: View {
                 .font(.headline)
 
             CostBreakdownTable(breakdown: viewModel.modelBreakdown)
-                .frame(minHeight: 100)
+                .frame(minHeight: 100, maxHeight: 350)
         }
     }
 

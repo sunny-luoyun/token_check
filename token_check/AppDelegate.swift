@@ -53,6 +53,9 @@ final class MainPanelController: NSObject, NSWindowDelegate {
 
     private func makeMainWindow() -> MainPanel {
         let hostingController = NSHostingController(rootView: ContentView())
+        if #available(macOS 14.0, *) {
+            hostingController.sizingOptions = []
+        }
         let window = MainPanel(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .utilityWindow],

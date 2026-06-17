@@ -35,6 +35,7 @@ struct ContentView: View {
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+            .frame(maxHeight: .infinity)
             .animation(.easeInOut(duration: 0.3), value: selectedTab)
         }
         .frame(minWidth: 800, minHeight: 500)
