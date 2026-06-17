@@ -66,6 +66,7 @@ struct ContentView: View {
                     .contentShape(.interaction, .rect(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
             }
         }
         .padding(.horizontal, 8)
