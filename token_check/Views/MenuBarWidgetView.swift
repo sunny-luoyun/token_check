@@ -8,6 +8,8 @@ struct MenuBarWidgetView: View {
         model.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
     }
 
+    @State private var chartAnimated = false
+
     var body: some View {
         VStack(spacing: 0) {
             if model.isLoading {
@@ -24,6 +26,7 @@ struct MenuBarWidgetView: View {
                         .multilineTextAlignment(.center)
                 }
                 .frame(height: 180)
+                .transition(.opacity)
             } else if let usage = model.usage {
                 todaySection(usage)
                 Divider()
@@ -114,7 +117,7 @@ struct MenuBarWidgetView: View {
                 Chart(usage.dailyTokens) { item in
                     BarMark(
                         x: .value("日期", item.date, unit: .day),
-                        y: .value("Token 量", item.totalTokens)
+                        y: .value("Token 量", chartAnimated ? item.totalTokens : 0)
                     )
                     .foregroundStyle(.blue.gradient)
                     .cornerRadius(3)
@@ -123,6 +126,12 @@ struct MenuBarWidgetView: View {
                 .chartYAxis(.hidden)
                 .chartYScale(domain: 0...(maxVal * 12 / 10))
                 .frame(height: 80)
+                .animation(.spring(response: 0.45, dampingFraction: 0.75), value: chartAnimated)
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3).delay(0.1)) {
+                        chartAnimated = true
+                    }
+                }
             }
         }
     }

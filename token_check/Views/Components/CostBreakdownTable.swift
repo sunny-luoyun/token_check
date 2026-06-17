@@ -7,7 +7,7 @@ struct CostBreakdownTable: View {
         Table(breakdown) {
             TableColumn("Model") { item in
                 Text(item.displayName)
-                    .font(.caption)
+                    .font(.caption.weight(.medium))
             }
 
             TableColumn("会话数") { item in
@@ -15,7 +15,7 @@ struct CostBreakdownTable: View {
                     .font(.caption.monospaced())
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .width(60)
+            .width(65)
 
             TableColumn("输入（未命中）") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -26,7 +26,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.orange)
                 }
             }
-            .width(110)
+            .width(120)
 
             TableColumn("缓存命中") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -37,7 +37,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.green)
                 }
             }
-            .width(110)
+            .width(120)
 
             TableColumn("输出") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -48,12 +48,13 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.blue)
                 }
             }
-            .width(110)
+            .width(120)
 
             TableColumn("总费用") { item in
                 Text(formatCost(item.totalCost))
                     .font(.caption.monospaced().bold())
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                    .foregroundStyle(item.totalCost > 0 ? .primary : .secondary)
             }
             .width(90)
         }

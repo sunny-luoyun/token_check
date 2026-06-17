@@ -4,25 +4,14 @@ struct CostDashboardView: View {
     @StateObject private var viewModel = CostViewModel()
     @AppStorage(ModelPricingStore.storageKey, store: ModelPricingStore.sharedDefaults) private var pricingRulesData = Data()
 
+    @Environment(\.appTheme) var theme
+
     var body: some View {
         VStack(spacing: 0) {
             if viewModel.isLoading {
-                Spacer()
-                ProgressView("正在加载…")
-                Spacer()
+                loadingSkeleton
             } else if let error = viewModel.error {
-                Spacer()
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(.orange)
-                    Text(error)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                    Button("重试", action: viewModel.load)
-                        .buttonStyle(.bordered)
-                }
-                Spacer()
+                errorView(error)
             } else if let summary = viewModel.summary {
                 timeFilterBar
                     .padding(.horizontal)
@@ -83,6 +72,39 @@ struct CostDashboardView: View {
         }
     }
 
+    private var loadingSkeleton: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            HStack(spacing: 12) {
+                ForEach(0..<4, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: theme.radiusMedium)
+                        .fill(.quaternary.opacity(0.5))
+                        .frame(height: 140)
+                        .shimmering()
+                }
+            }
+            .padding(.horizontal)
+            Spacer()
+        }
+    }
+
+    private func errorView(_ error: String) -> some View {
+        Spacer()
+            .overlay {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(.orange)
+                    Text(error)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    Button("重试", action: viewModel.load)
+                        .buttonStyle(.bordered)
+                }
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+    }
+
     private var timeFilterBar: some View {
         HStack {
             Spacer()
@@ -100,7 +122,9 @@ struct CostDashboardView: View {
     }
 
     private func summaryCards(summary: CostSummary) -> some View {
-        HStack(spacing: 12) {
+        LazyVGrid(columns: [
+            GridItem(.adaptive(minimum: 150), spacing: 12)
+        ], spacing: 12) {
             StatCardView(
                 title: "总费用",
                 value: formatCost(summary.totalCost),
@@ -108,6 +132,8 @@ struct CostDashboardView: View {
                 icon: "yensign.circle.fill",
                 color: .red
             )
+            .transition(.scale.combined(with: .opacity))
+
             StatCardView(
                 title: "输入（未命中）",
                 value: formatTokens(summary.totalMissTokens),
@@ -115,6 +141,8 @@ struct CostDashboardView: View {
                 icon: "arrowtriangle.down.circle.fill",
                 color: .orange
             )
+            .transition(.scale.combined(with: .opacity))
+
             StatCardView(
                 title: "缓存命中",
                 value: formatTokens(summary.totalHitTokens),
@@ -122,6 +150,8 @@ struct CostDashboardView: View {
                 icon: "memorychip.fill",
                 color: .green
             )
+            .transition(.scale.combined(with: .opacity))
+
             StatCardView(
                 title: "输出",
                 value: formatTokens(summary.totalOutputTokens),
@@ -129,7 +159,9 @@ struct CostDashboardView: View {
                 icon: "arrowtriangle.up.circle.fill",
                 color: .blue
             )
+            .transition(.scale.combined(with: .opacity))
         }
+        .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.1), value: summary.totalCost)
     }
 
     private var costTable: some View {

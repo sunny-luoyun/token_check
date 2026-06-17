@@ -2,24 +2,29 @@ import SwiftUI
 
 struct SessionListView: View {
     @StateObject private var viewModel = SessionListViewModel()
+    @Environment(\.appTheme) var theme
 
     var body: some View {
         VStack(spacing: 0) {
             if viewModel.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = viewModel.error {
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(.orange)
-                    Text(error)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                    Button("重试", action: viewModel.load)
-                        .buttonStyle(.bordered)
+                VStack(spacing: 12) {
+                    Spacer()
+                    RoundedRectangle(cornerRadius: theme.radiusMedium)
+                        .fill(.quaternary.opacity(0.5))
+                        .frame(height: 40)
+                        .shimmering()
+                        .padding(.horizontal)
+                    RoundedRectangle(cornerRadius: theme.radiusMedium)
+                        .fill(.quaternary.opacity(0.5))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 300)
+                        .shimmering()
+                        .padding(.horizontal)
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+            } else if let error = viewModel.error {
+                errorView(error)
             } else {
                 VStack(spacing: 0) {
                     timeFilterBar
@@ -98,6 +103,24 @@ struct SessionListView: View {
         .onAppear {
             viewModel.load()
         }
+        .animation(.easeInOut(duration: 0.25), value: viewModel.filteredSessions.count)
+    }
+
+    private func errorView(_ error: String) -> some View {
+        Spacer()
+            .overlay {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(.orange)
+                    Text(error)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    Button("重试", action: viewModel.load)
+                        .buttonStyle(.bordered)
+                }
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
     private var timeFilterBar: some View {

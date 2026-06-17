@@ -10,7 +10,7 @@ struct TimeFilterView: View {
     let onChange: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Picker("年份", selection: Binding(
                 get: { selectedYear ?? "全部" },
                 set: {

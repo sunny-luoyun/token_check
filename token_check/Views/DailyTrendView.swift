@@ -5,6 +5,8 @@ struct DailyTrendView: View {
     @StateObject private var viewModel = DailyTrendViewModel()
     @AppStorage(ModelPricingStore.storageKey, store: ModelPricingStore.sharedDefaults) private var pricingRulesData = Data()
 
+    @Environment(\.appTheme) var theme
+
     private let modelColors: [Color] = [
         .blue, .green, .orange, .purple, .red, .teal, .pink, .indigo,
         .mint, .yellow, .brown, .cyan
@@ -13,22 +15,9 @@ struct DailyTrendView: View {
     var body: some View {
         VStack(spacing: 6) {
             if viewModel.isLoading {
-                Spacer()
-                ProgressView("正在加载…")
-                Spacer()
+                loadingSkeleton
             } else if let error = viewModel.error {
-                Spacer()
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(.orange)
-                    Text(error)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                    Button("重试", action: viewModel.load)
-                        .buttonStyle(.bordered)
-                }
-                Spacer()
+                errorView(error)
             } else {
                 timeFilterBar
                     .padding(.horizontal)
@@ -77,6 +66,40 @@ struct DailyTrendView: View {
         .onChange(of: pricingRulesData) {
             viewModel.load()
         }
+    }
+
+    private var loadingSkeleton: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            RoundedRectangle(cornerRadius: theme.radiusMedium)
+                .fill(.quaternary.opacity(0.5))
+                .frame(height: 40)
+                .shimmering()
+                .padding(.horizontal)
+            RoundedRectangle(cornerRadius: theme.radiusMedium)
+                .fill(.quaternary.opacity(0.5))
+                .frame(height: 300)
+                .shimmering()
+                .padding(.horizontal)
+            Spacer()
+        }
+    }
+
+    private func errorView(_ error: String) -> some View {
+        Spacer()
+            .overlay {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(.orange)
+                    Text(error)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    Button("重试", action: viewModel.load)
+                        .buttonStyle(.bordered)
+                }
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
     // MARK: - Time Filter
@@ -141,75 +164,14 @@ struct DailyTrendView: View {
 
     // MARK: - Chart
 
+    @State private var chartAnimated = false
+
     private var chartSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            let colorMap = Dictionary(uniqueKeysWithValues: viewModel.availableModels.enumerated().map { (i, model) in
-                (model, modelColors[i % modelColors.count])
-            })
-
-            let isCost = viewModel.chartMode == .cost
-            let pricingLookup = viewModel.pricingLookup
-            let metricValue: (DailyModelUsage) -> Double = { item in
-                if isCost {
-                    let key = "\(item.modelId)/\(item.variant)"
-                    let pricing = pricingLookup[key] ?? .defaults(modelId: item.modelId, variant: item.variant)
-                    switch viewModel.selectedMetric {
-                    case .total:
-                        return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
-                            + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
-                            + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
-                    case .input:
-                        return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
-                    case .cacheHit:
-                        return Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
-                    case .output:
-                        return Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
-                    }
-                } else {
-                    switch viewModel.selectedMetric {
-                    case .total: return Double(item.totalTokens)
-                    case .input: return Double(item.inputTokens)
-                    case .cacheHit: return Double(item.cacheReadTokens)
-                    case .output: return Double(item.outputTokens)
-                    }
-                }
-            }
-
-            Chart(viewModel.filteredData) { item in
-                LineMark(
-                    x: .value("日期", item.date),
-                    y: .value(isCost ? "费用" : "Tokens", metricValue(item))
-                )
-                .foregroundStyle(by: .value("Model", item.displayName))
-
-                PointMark(
-                    x: .value("日期", item.date),
-                    y: .value(isCost ? "费用" : "Tokens", metricValue(item))
-                )
-                .foregroundStyle(by: .value("Model", item.displayName))
-                .symbolSize(20)
-            }
-            .chartForegroundStyleScale { modelName in
-                colorMap[modelName] ?? .gray
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .day)) { _ in
-                    AxisValueLabel(format: .dateTime.day().month())
-                }
-            }
-            .chartYAxis {
-                AxisMarks { value in
-                    AxisValueLabel {
-                        if isCost {
-                            Text(formatCost(value.as(Double.self) ?? 0))
-                        } else {
-                            Text(formatTokens(Int(value.as(Double.self) ?? 0)))
-                        }
-                    }
-                }
-            }
-            .frame(height: 300)
-        }
+        TrendChartView(
+            viewModel: viewModel,
+            modelColors: modelColors,
+            chartAnimated: $chartAnimated
+        )
     }
 
     // MARK: - Model Legend
@@ -279,5 +241,113 @@ struct DailyTrendView: View {
         } else {
             String(format: "¥%.1f", value)
         }
+    }
+}
+
+private struct TrendChartView: View {
+    @ObservedObject var viewModel: DailyTrendViewModel
+    let modelColors: [Color]
+    @Binding var chartAnimated: Bool
+
+    private var colorMap: [String: Color] {
+        Dictionary(uniqueKeysWithValues: viewModel.availableModels.enumerated().map { (i, model) in
+            (model, modelColors[i % modelColors.count])
+        })
+    }
+
+    private var isCost: Bool {
+        viewModel.chartMode == .cost
+    }
+
+    private func metricValue(for item: DailyModelUsage) -> Double {
+        if isCost {
+            let key = "\(item.modelId)/\(item.variant)"
+            let pricing = viewModel.pricingLookup[key] ?? .defaults(modelId: item.modelId, variant: item.variant)
+            switch viewModel.selectedMetric {
+            case .total:
+                return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+                    + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+                    + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+            case .input:
+                return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+            case .cacheHit:
+                return Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+            case .output:
+                return Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+            }
+        } else {
+            switch viewModel.selectedMetric {
+            case .total: return Double(item.totalTokens)
+            case .input: return Double(item.inputTokens)
+            case .cacheHit: return Double(item.cacheReadTokens)
+            case .output: return Double(item.outputTokens)
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Chart {
+                ForEach(viewModel.filteredData) { item in
+                    LineMark(
+                        x: .value("日期", item.date),
+                        y: .value(isCost ? "费用" : "Tokens", metricValue(for: item))
+                    )
+                    .foregroundStyle(by: .value("Model", item.displayName))
+                    .opacity(chartAnimated ? 1 : 0)
+
+                    PointMark(
+                        x: .value("日期", item.date),
+                        y: .value(isCost ? "费用" : "Tokens", metricValue(for: item))
+                    )
+                    .foregroundStyle(by: .value("Model", item.displayName))
+                    .symbolSize(20)
+                    .opacity(chartAnimated ? 1 : 0)
+                }
+            }
+            .chartForegroundStyleScale { modelName in
+                colorMap[modelName] ?? .gray
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day)) { _ in
+                    AxisValueLabel(format: .dateTime.day().month())
+                }
+            }
+            .chartYAxis {
+                AxisMarks { value in
+                    AxisValueLabel {
+                        if isCost {
+                            Text(formatCost(value.as(Double.self) ?? 0))
+                        } else {
+                            Text(formatTokens(Int(value.as(Double.self) ?? 0)))
+                        }
+                    }
+                }
+            }
+            .frame(height: 300)
+            .onChange(of: viewModel.filteredData.count) { _, _ in
+                chartAnimated = false
+                withAnimation(.easeInOut(duration: 0.5).delay(0.1)) {
+                    chartAnimated = true
+                }
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.5).delay(0.1)) {
+                    chartAnimated = true
+                }
+            }
+        }
+    }
+
+    private func formatTokens(_ n: Int) -> String {
+        if n >= 1_000_000 { String(format: "%.1fM", Double(n) / 1_000_000) }
+        else if n >= 1_000 { String(format: "%.0fK", Double(n) / 1_000) }
+        else { "\(n)" }
+    }
+
+    private func formatCost(_ value: Double) -> String {
+        if value < 0.01 { String(format: "¥%.4f", value) }
+        else if value < 1 { String(format: "¥%.2f", value) }
+        else { String(format: "¥%.1f", value) }
     }
 }

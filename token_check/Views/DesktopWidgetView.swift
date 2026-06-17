@@ -7,6 +7,8 @@ struct DesktopWidgetView: View {
         model.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
     }
 
+    @State private var barAnimated = false
+
     var body: some View {
         VStack(spacing: 0) {
             if model.isLoading {
@@ -23,6 +25,7 @@ struct DesktopWidgetView: View {
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxHeight: .infinity)
+                .transition(.opacity)
             } else if let usage = model.usage {
                 HStack {
                     Label("今日 Token", systemImage: "chart.bar.fill")
@@ -88,12 +91,13 @@ struct DesktopWidgetView: View {
                     let maxVal = max(usage.dailyTokens.map(\.totalTokens).max() ?? 1, 1)
                     GeometryReader { geo in
                         HStack(spacing: 2) {
-                            ForEach(usage.dailyTokens) { item in
+                            ForEach(Array(usage.dailyTokens.enumerated()), id: \.element.id) { index, item in
                                 let ratio = CGFloat(item.totalTokens) / CGFloat(maxVal)
                                 RoundedRectangle(cornerRadius: 2)
                                     .fill(.blue.gradient)
-                                    .frame(height: max(4, ratio * geo.size.height))
+                                    .frame(height: barAnimated ? max(4, ratio * geo.size.height) : 2)
                                     .frame(maxHeight: .infinity, alignment: .bottom)
+                                    .animation(.spring(response: 0.5, dampingFraction: 0.7).delay(Double(index) * 0.04), value: barAnimated)
                             }
                         }
                     }
@@ -108,6 +112,9 @@ struct DesktopWidgetView: View {
         .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 2)
         .onAppear {
             model.refresh()
+            withAnimation(.easeOut(duration: 0.4).delay(0.2)) {
+                barAnimated = true
+            }
         }
     }
 
