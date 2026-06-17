@@ -15,6 +15,15 @@ class TokenViewModel: ObservableObject {
     @Published var deepseekLoading = false
 
     private let service = WidgetDataService()
+    private var fileWatcherCancellable: AnyCancellable?
+
+    init() {
+        DatabaseFileWatcher.shared.startWatching()
+        fileWatcherCancellable = DatabaseFileWatcher.shared.publisher
+            .sink { [weak self] in
+                self?.refresh()
+            }
+    }
 
     func refresh() {
         isLoading = true

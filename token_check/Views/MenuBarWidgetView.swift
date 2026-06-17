@@ -1,11 +1,8 @@
 import SwiftUI
 import Charts
-import Combine
 
 struct MenuBarWidgetView: View {
     @ObservedObject var model: TokenViewModel
-    @AppStorage("refreshMinutes") private var refreshMinutes = 5
-    @State private var timerCancellable: AnyCancellable?
 
     private var total7Day: Int {
         model.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
@@ -38,13 +35,6 @@ struct MenuBarWidgetView: View {
         .frame(width: 280)
         .onAppear {
             model.refresh()
-            startRefreshTimer()
-        }
-        .onDisappear {
-            timerCancellable?.cancel()
-        }
-        .onChange(of: refreshMinutes) { _, _ in
-            startRefreshTimer()
         }
     }
 
@@ -135,14 +125,6 @@ struct MenuBarWidgetView: View {
                 .frame(height: 80)
             }
         }
-    }
-
-    private func startRefreshTimer() {
-        timerCancellable?.cancel()
-        let interval = max(TimeInterval(refreshMinutes), 1) * 60
-        timerCancellable = Timer.publish(every: interval, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak model] _ in model?.refresh() }
     }
 
     private func formatCost(_ c: Double) -> String {

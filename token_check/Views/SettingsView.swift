@@ -2,7 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("showDockIcon") private var showDockIcon = true
-    @AppStorage("refreshMinutes") private var refreshMinutes = 5
     @AppStorage("deepseekApiKey") private var deepseekApiKey = ""
     @State private var pricingRules: [ModelPricingRule] = []
     @State private var pricingError: String?
@@ -23,20 +22,6 @@ struct SettingsView: View {
                         let hasVisibleMainWindow = appDelegate?.mainPanelController?.hasVisibleMainWindow() == true
                         NSApp.setActivationPolicy(hasVisibleMainWindow ? .regular : .accessory)
                     }
-            }
-
-            Section("刷新") {
-                Picker("自动刷新间隔", selection: $refreshMinutes) {
-                    Text("1 分钟").tag(1)
-                    Text("2 分钟").tag(2)
-                    Text("5 分钟").tag(5)
-                    Text("10 分钟").tag(10)
-                    Text("15 分钟").tag(15)
-                    Text("30 分钟").tag(30)
-                }
-                Text("修改后立即生效")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("DeepSeek") {

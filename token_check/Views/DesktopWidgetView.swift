@@ -1,10 +1,7 @@
 import SwiftUI
-import Combine
 
 struct DesktopWidgetView: View {
     @ObservedObject var model: TokenViewModel
-    @AppStorage("refreshMinutes") private var refreshMinutes = 5
-    @State private var timerCancellable: AnyCancellable?
 
     private var total7Day: Int {
         model.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
@@ -111,13 +108,6 @@ struct DesktopWidgetView: View {
         .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 2)
         .onAppear {
             model.refresh()
-            startRefreshTimer()
-        }
-        .onDisappear {
-            timerCancellable?.cancel()
-        }
-        .onChange(of: refreshMinutes) { _, _ in
-            startRefreshTimer()
         }
     }
 
@@ -130,14 +120,6 @@ struct DesktopWidgetView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private func startRefreshTimer() {
-        timerCancellable?.cancel()
-        let interval = max(TimeInterval(refreshMinutes), 1) * 60
-        timerCancellable = Timer.publish(every: interval, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak model] _ in model?.refresh() }
     }
 
     private func formatCost(_ c: Double) -> String {
