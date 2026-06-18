@@ -133,6 +133,9 @@ struct SessionListView: View {
                 selectedYear: $viewModel.selectedYear,
                 selectedMonth: $viewModel.selectedMonth,
                 selectedDay: $viewModel.selectedDay,
+                filterMode: $viewModel.filterMode,
+                startDate: $viewModel.startDate,
+                endDate: $viewModel.endDate,
                 onChange: { viewModel.applyFilter() }
             )
             Spacer()

@@ -117,7 +117,7 @@ struct DailyTrendView: View {
                 viewModel.applyFilter()
             }
 
-            if viewModel.isMonthlyMode {
+            if viewModel.isMonthlyMode || viewModel.isCustomMode {
                 TimeFilterView(
                     years: viewModel.availableYears,
                     months: viewModel.availableMonths,
@@ -125,6 +125,9 @@ struct DailyTrendView: View {
                     selectedYear: $viewModel.selectedYear,
                     selectedMonth: $viewModel.selectedMonth,
                     selectedDay: $viewModel.selectedDay,
+                    filterMode: viewModel.isCustomMode ? .constant(.range) : $viewModel.filterMode,
+                    startDate: $viewModel.startDate,
+                    endDate: $viewModel.endDate,
                     onChange: { viewModel.applyFilter() }
                 )
                 .padding(.leading, 8)

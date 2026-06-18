@@ -160,6 +160,36 @@ final class TokenDeltaTracker {
         return result
     }
 
+    func rollback(from startDate: Date, to endDate: Date) -> RollbackRecord {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        return dailyRollbacks.filter { keys.contains($0.key) }.reduce(.zero) { $0 + $1.value }
+    }
+
+    func modelRollbacks(from startDate: Date, to endDate: Date) -> [String: TokenData] {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        var result: [String: TokenData] = [:]
+        for (key, modelRb) in dailyModelRollbacks where keys.contains(key) {
+            for (modelKey, tokens) in modelRb {
+                result[modelKey] = (result[modelKey] ?? .zero) + tokens
+            }
+        }
+        return result
+    }
+
+    private func dateKeysInRange(from startDate: Date, to endDate: Date) -> Set<String> {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: startDate)
+        guard let end = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: endDate)) else { return [] }
+        var keys: Set<String> = []
+        var current = start
+        while current < end {
+            keys.insert(Self.dailyDateFormatter.string(from: current))
+            guard let next = cal.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+        return keys
+    }
+
     func rollback(days: Int) -> RollbackRecord {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())

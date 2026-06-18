@@ -124,10 +124,14 @@ final class DatabaseService {
         }
     }
 
-    func fetchDailyUsageByModel(days: Int = 30, year: String? = nil, month: String? = nil, day: String? = nil) throws -> [DailyModelUsage] {
+    func fetchDailyUsageByModel(days: Int = 30, year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> [DailyModelUsage] {
         var whereClause = ""
         var params: [Any] = []
-        if let year, let month, let day {
+        if let startDate, let endDate {
+            let (clause, p) = buildDateRangeClause(from: startDate, to: endDate)
+            whereClause = clause
+            params = p
+        } else if let year, let month, let day {
             whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ? AND strftime('%d', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?"
             params = [year, month, day]
         } else if let year, let month {
@@ -205,8 +209,9 @@ final class DatabaseService {
         }
     }
 
-    func fetchModelCostBreakdown(year: String? = nil, month: String? = nil, day: String? = nil, pricingRules: [ModelPricingRule] = []) throws -> [ModelCostBreakdown] {
+    func fetchModelCostBreakdown(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, pricingRules: [ModelPricingRule] = []) throws -> [ModelCostBreakdown] {
         let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
+        let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
         return try readAll(
             """
             SELECT json_extract(model, '$.id') AS model_id,
@@ -217,11 +222,11 @@ final class DatabaseService {
                     COALESCE(SUM(tokens_output), 0) AS output,
                     COALESCE(SUM(tokens_reasoning), 0) AS reasoning
             FROM session
-            \(timeWhereClause(year: year, month: month, day: day))
+            \(whereClause)
             GROUP BY model_id, variant
             ORDER BY SUM(tokens_input) DESC
             """,
-            parameters: timeParams(year: year, month: month, day: day)
+            parameters: params
         ) { stmt in
             let modelId = text(stmt, 0) ?? "unknown"
             let variant = text(stmt, 1) ?? "default"
@@ -240,8 +245,9 @@ final class DatabaseService {
         .filter { $0.pricing.isEnabled }
     }
 
-    func fetchCostSummary(year: String? = nil, month: String? = nil, day: String? = nil) throws -> CostSummary {
-        try readOne(
+    func fetchCostSummary(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> CostSummary {
+        let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        return try readOne(
             """
             SELECT COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_cache_read), 0),
@@ -249,9 +255,9 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_reasoning), 0),
                    COUNT(*)
             FROM session
-            \(timeWhereClause(year: year, month: month, day: day))
+            \(whereClause)
             """,
-            parameters: timeParams(year: year, month: month, day: day)
+            parameters: params
         ) { stmt in
             CostSummary(
                 totalMissTokens: int(stmt, 0),
@@ -266,8 +272,9 @@ final class DatabaseService {
         }
     }
 
-    func fetchSessions(year: String? = nil, month: String? = nil, day: String? = nil, limit: Int = 100, offset: Int = 0) throws -> [Session] {
-        try readAll(
+    func fetchSessions(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, limit: Int = 100, offset: Int = 0) throws -> [Session] {
+        let (whereClause, whereParams) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        return try readAll(
             """
             SELECT id, slug, title,
                    tokens_input, tokens_output, tokens_reasoning,
@@ -275,11 +282,11 @@ final class DatabaseService {
                    cost, model, time_created,
                    json_extract(metadata, '$.project') AS project
             FROM session
-            \(timeWhereClause(year: year, month: month, day: day))
+            \(whereClause)
             ORDER BY time_created DESC
             LIMIT ? OFFSET ?
             """,
-            parameters: timeParams(year: year, month: month, day: day) + [Int64(limit), Int64(offset)]
+            parameters: whereParams + [Int64(limit), Int64(offset)]
         ) { stmt in
             let modelJSON = text(stmt, 9) ?? "{}"
             let modelData = modelJSON.data(using: .utf8)
@@ -304,27 +311,41 @@ final class DatabaseService {
 
     // MARK: - Time Filter Helpers
 
-    private func timeWhereClause(year: String?, month: String?, day: String?) -> String {
+    private func buildTimeClause(year: String?, month: String?, day: String?, from startDate: Date?, to endDate: Date?) -> (clause: String, params: [Any]) {
+        if let startDate, let endDate {
+            return buildDateRangeClause(from: startDate, to: endDate)
+        }
         var clauses: [String] = []
-        if year != nil {
+        var params: [Any] = []
+        if let year {
             clauses.append("strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?")
+            params.append(year)
         }
-        if month != nil {
+        if let month {
             clauses.append("strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?")
+            params.append(month)
         }
-        if day != nil {
+        if let day {
             clauses.append("strftime('%d', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?")
+            params.append(day)
         }
-        if clauses.isEmpty { return "" }
-        return "WHERE " + clauses.joined(separator: " AND ")
+        if clauses.isEmpty { return ("", []) }
+        return ("WHERE " + clauses.joined(separator: " AND "), params)
     }
 
-    private func timeParams(year: String?, month: String?, day: String?) -> [Any] {
-        var params: [Any] = []
-        if let year { params.append(year) }
-        if let month { params.append(month) }
-        if let day { params.append(day) }
-        return params
+    private func buildDateRangeClause(from startDate: Date, to endDate: Date) -> (clause: String, params: [Any]) {
+        let cal = Calendar.current
+        let startOfDay = cal.startOfDay(for: startDate)
+        guard let endOfNextDay = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: endDate)) else {
+            return ("", [])
+        }
+        return (
+            clause: "WHERE time_created >= ? AND time_created < ?",
+            params: [
+                Int64(startOfDay.timeIntervalSince1970 * 1000),
+                Int64(endOfNextDay.timeIntervalSince1970 * 1000)
+            ]
+        )
     }
 
     // MARK: - Helpers

@@ -6,6 +6,13 @@ class CostViewModel: ObservableObject {
     @Published var modelBreakdown: [ModelCostBreakdown] = []
     @Published var pricingDescription = ""
     @Published var periods: [TimePeriod] = []
+    @Published var filterMode: TimeFilterMode = .range
+    @Published var startDate: Date = {
+        let cal = Calendar.current
+        let now = Date()
+        return cal.date(from: DateComponents(year: cal.component(.year, from: now), month: cal.component(.month, from: now), day: 1)) ?? now
+    }()
+    @Published var endDate: Date = Date()
     @Published var selectedYear: String? = {
         String(Calendar.current.component(.year, from: Date()))
     }()
@@ -53,19 +60,29 @@ class CostViewModel: ObservableObject {
                 if let db = service.db {
                     TokenDeltaTracker.shared.refresh(db: db)
                 }
-                let rb = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
-                let periods = try service.fetchAvailablePeriods()
                 let pricingRules = ModelPricingStore.load()
-                let breakdown = try service.fetchModelCostBreakdown(
-                    year: self.selectedYear,
-                    month: self.selectedMonth,
-                    day: self.selectedDay,
-                    pricingRules: pricingRules
-                )
+                let breakdown: [ModelCostBreakdown]
+                let rb: RollbackRecord
+                let modelRb: [String: TokenData]
+                let periods = try service.fetchAvailablePeriods()
+
+                if self.filterMode == .range {
+                    breakdown = try service.fetchModelCostBreakdown(from: self.startDate, to: self.endDate, pricingRules: pricingRules)
+                    rb = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate)
+                    modelRb = TokenDeltaTracker.shared.modelRollbacks(from: self.startDate, to: self.endDate)
+                } else {
+                    rb = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
+                    breakdown = try service.fetchModelCostBreakdown(
+                        year: self.selectedYear,
+                        month: self.selectedMonth,
+                        day: self.selectedDay,
+                        pricingRules: pricingRules
+                    )
+                    modelRb = TokenDeltaTracker.shared.modelRollbacks(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
+                }
                 let summary = CostSummary.from(breakdown: breakdown)
                 let pricingDescription = Self.makePricingDescription(for: breakdown)
 
-                let modelRb = TokenDeltaTracker.shared.modelRollbacks(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                 let adjustedBreakdown: [ModelCostBreakdown] = breakdown.map { item in
                     let rb = modelRb[item.id] ?? .zero
                     return ModelCostBreakdown(
@@ -85,7 +102,7 @@ class CostViewModel: ObservableObject {
                 let finalSummary = useAdjusted ? CostSummary.from(breakdown: adjustedBreakdown) : summary
 
                 var days: [String] = []
-                if let year = self.selectedYear, let month = self.selectedMonth {
+                if self.filterMode == .day, let year = self.selectedYear, let month = self.selectedMonth {
                     days = try service.fetchAvailableDays(year: year, month: month)
                 }
 

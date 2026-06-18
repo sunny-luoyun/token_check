@@ -8,6 +8,7 @@ class DailyTrendViewModel: ObservableObject {
         case last30 = "30天"
         case last90 = "90天"
         case monthly = "按月"
+        case custom = "自定义"
     }
 
     enum MetricType: String, CaseIterable {
@@ -25,6 +26,13 @@ class DailyTrendViewModel: ObservableObject {
     @Published var timeMode: TimeMode = .last7
     @Published var selectedMetric: MetricType = .total
     @Published var chartMode: ChartMode = .token
+    @Published var filterMode: TimeFilterMode = .range
+    @Published var startDate: Date = {
+        let cal = Calendar.current
+        let now = Date()
+        return cal.date(from: DateComponents(year: cal.component(.year, from: now), month: cal.component(.month, from: now), day: 1)) ?? now
+    }()
+    @Published var endDate: Date = Date()
     @Published var selectedYear: String? = {
         String(Calendar.current.component(.year, from: Date()))
     }()
@@ -48,11 +56,12 @@ class DailyTrendViewModel: ObservableObject {
         case .last14: return 14
         case .last30: return 30
         case .last90: return 90
-        case .monthly: return 0
+        case .monthly, .custom: return 0
         }
     }
 
     var isMonthlyMode: Bool { timeMode == .monthly }
+    var isCustomMode: Bool { timeMode == .custom }
 
     var availableModels: [String] {
         Array(Set(dailyData.map(\.displayName))).sorted()
@@ -109,19 +118,19 @@ class DailyTrendViewModel: ObservableObject {
                     TokenDeltaTracker.shared.refresh(db: db)
                 }
                 let rbTotal: Int
-                if self.isMonthlyMode {
+                let data: [DailyModelUsage]
+                if self.isCustomMode {
+                    rbTotal = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate).total
+                    data = try service.fetchDailyUsageByModel(from: self.startDate, to: self.endDate)
+                } else if self.isMonthlyMode {
                     rbTotal = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay).total
+                    data = try service.fetchDailyUsageByModel(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                 } else {
                     rbTotal = TokenDeltaTracker.shared.rollback(days: self.days).total
+                    data = try service.fetchDailyUsageByModel(days: self.days)
                 }
                 let periods = try service.fetchAvailablePeriods()
                 let pricingRules = ModelPricingStore.load()
-                let data: [DailyModelUsage]
-                if self.isMonthlyMode {
-                    data = try service.fetchDailyUsageByModel(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
-                } else {
-                    data = try service.fetchDailyUsageByModel(days: self.days)
-                }
 
                 let filteredData = data.filter {
                     ModelPricingStore.isEnabled(forModelId: $0.modelId, variant: $0.variant, rules: pricingRules)
@@ -132,7 +141,7 @@ class DailyTrendViewModel: ObservableObject {
                     days = try service.fetchAvailableDays(year: year, month: month)
                 }
 
-                let filledData = self.isMonthlyMode ? filteredData : self.fillMissingDays(filteredData, days: self.days)
+                let filledData = (self.isMonthlyMode || self.isCustomMode) ? filteredData : self.fillMissingDays(filteredData, days: self.days)
 
                 DispatchQueue.main.async {
                     self.periods = periods

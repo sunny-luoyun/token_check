@@ -8,6 +8,13 @@ class SessionListViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var sessionRollbacks: [String: TokenData] = [:]
     @Published var periods: [TimePeriod] = []
+    @Published var filterMode: TimeFilterMode = .range
+    @Published var startDate: Date = {
+        let cal = Calendar.current
+        let now = Date()
+        return cal.date(from: DateComponents(year: cal.component(.year, from: now), month: cal.component(.month, from: now), day: 1)) ?? now
+    }()
+    @Published var endDate: Date = Date()
     @Published var selectedYear: String? = {
         String(Calendar.current.component(.year, from: Date()))
     }()
@@ -66,10 +73,15 @@ class SessionListViewModel: ObservableObject {
                 }
                 let rb = TokenDeltaTracker.shared.sessionRollbacks
                 let periods = try service.fetchAvailablePeriods()
-                let sessions = try service.fetchSessions(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay, limit: 200)
+                let sessions: [Session]
+                if self.filterMode == .range {
+                    sessions = try service.fetchSessions(from: self.startDate, to: self.endDate, limit: 200)
+                } else {
+                    sessions = try service.fetchSessions(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay, limit: 200)
+                }
 
                 var days: [String] = []
-                if let year = self.selectedYear, let month = self.selectedMonth {
+                if self.filterMode == .day, let year = self.selectedYear, let month = self.selectedMonth {
                     days = try service.fetchAvailableDays(year: year, month: month)
                 }
 

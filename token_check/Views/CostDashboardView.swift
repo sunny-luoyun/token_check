@@ -13,37 +13,39 @@ struct CostDashboardView: View {
             } else if let error = viewModel.error {
                 errorView(error)
             } else if let summary = viewModel.summary {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        timeFilterBar
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            timeFilterBar
+                                .padding(.horizontal)
+                                .padding(.vertical, 8)
 
-                        summaryCards(summary: summary)
-                            .padding(.horizontal)
-                            .overlay(alignment: .topTrailing) {
-                                if viewModel.hasRollback {
-                                    HStack(spacing: 2) {
-                                        Image(systemName: "arrow.counterclockwise.circle.fill")
-                                            .font(.caption)
-                                            .foregroundStyle(.red)
-                                        Text("+\(formatTokens(viewModel.rollbackTotal))")
-                                            .font(.caption2.monospaced())
-                                            .foregroundStyle(.red)
+                            summaryCards(summary: summary)
+                                .padding(.horizontal)
+                                .overlay(alignment: .topTrailing) {
+                                    if viewModel.hasRollback {
+                                        HStack(spacing: 2) {
+                                            Image(systemName: "arrow.counterclockwise.circle.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(.red)
+                                            Text("+\(formatTokens(viewModel.rollbackTotal))")
+                                                .font(.caption2.monospaced())
+                                                .foregroundStyle(.red)
+                                        }
+                                        .offset(x: -4, y: 4)
                                     }
-                                    .offset(x: -4, y: 4)
                                 }
-                            }
 
-                        Divider()
-                            .padding(.vertical, 8)
+                            Divider()
+                                .padding(.vertical, 8)
 
-                        costTable
-                            .padding(.horizontal)
-
-                        costFooter(summary: summary)
-                            .padding()
+                            costTable
+                                .padding(.horizontal)
+                        }
                     }
+
+                    costFooter(summary: summary)
+                        .padding()
                 }
             }
         }
@@ -119,6 +121,9 @@ struct CostDashboardView: View {
                 selectedYear: $viewModel.selectedYear,
                 selectedMonth: $viewModel.selectedMonth,
                 selectedDay: $viewModel.selectedDay,
+                filterMode: $viewModel.filterMode,
+                startDate: $viewModel.startDate,
+                endDate: $viewModel.endDate,
                 onChange: { viewModel.applyFilter() }
             )
             Spacer()
@@ -173,8 +178,8 @@ struct CostDashboardView: View {
             Text("按 Model 分解")
                 .font(.headline)
 
-            CostBreakdownTable(breakdown: viewModel.modelBreakdown)
-                .frame(minHeight: 100, maxHeight: 350)
+                CostBreakdownTable(breakdown: viewModel.modelBreakdown)
+                    .frame(minHeight: 100, idealHeight: 400)
         }
     }
 
