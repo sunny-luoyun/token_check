@@ -121,13 +121,23 @@ class DailyTrendViewModel: ObservableObject {
                 let data: [DailyModelUsage]
                 if self.isCustomMode {
                     rbTotal = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate).total
-                    data = try service.fetchDailyUsageByModel(from: self.startDate, to: self.endDate)
+                    data = TokenDeltaTracker.shared.dailyModelUsage(from: self.startDate, to: self.endDate)
                 } else if self.isMonthlyMode {
                     rbTotal = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay).total
-                    data = try service.fetchDailyUsageByModel(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
+                    if let year = self.selectedYear, let month = self.selectedMonth {
+                        data = TokenDeltaTracker.shared.dailyModelUsage(from: Self.dateFrom(year: year, month: month), to: Self.lastDayOf(year: year, month: month))
+                    } else {
+                        data = []
+                    }
                 } else {
                     rbTotal = TokenDeltaTracker.shared.rollback(days: self.days).total
-                    data = try service.fetchDailyUsageByModel(days: self.days)
+                    let cal = Calendar.current
+                    let today = cal.startOfDay(for: Date())
+                    if let startDate = cal.date(byAdding: .day, value: -(self.days - 1), to: today) {
+                        data = TokenDeltaTracker.shared.dailyModelUsage(from: startDate, to: today)
+                    } else {
+                        data = []
+                    }
                 }
                 let periods = try service.fetchAvailablePeriods()
                 let pricingRules = ModelPricingStore.load()
@@ -160,6 +170,19 @@ class DailyTrendViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    private static func dateFrom(year: String, month: String) -> Date {
+        let cal = Calendar.current
+        return cal.date(from: DateComponents(year: Int(year), month: Int(month), day: 1)) ?? Date()
+    }
+
+    private static func lastDayOf(year: String, month: String) -> Date {
+        let cal = Calendar.current
+        guard let first = cal.date(from: DateComponents(year: Int(year), month: Int(month), day: 1)),
+              let nextMonth = cal.date(byAdding: .month, value: 1, to: first),
+              let last = cal.date(byAdding: .day, value: -1, to: nextMonth) else { return Date() }
+        return last
     }
 
     func applyFilter() {

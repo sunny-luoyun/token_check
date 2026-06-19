@@ -11,12 +11,16 @@ final class TokenDeltaTracker {
     private var _modelRollbacks: [String: TokenData] = [:]
     private var _dailyRollbacks: [String: RollbackRecord] = [:]
     private var _dailyModelRollbacks: [String: [String: TokenData]] = [:]
+    private var _dailyConsumption: [String: TokenData] = [:]
+    private var _dailyModelConsumption: [String: [String: TokenData]] = [:]
 
     var rollbackRecord: RollbackRecord { queue.sync { _rollbackRecord } }
     var sessionRollbacks: [String: TokenData] { queue.sync { _sessionRollbacks } }
     var modelRollbacks: [String: TokenData] { queue.sync { _modelRollbacks } }
     var dailyRollbacks: [String: RollbackRecord] { queue.sync { _dailyRollbacks } }
     var dailyModelRollbacks: [String: [String: TokenData]] { queue.sync { _dailyModelRollbacks } }
+    var dailyConsumption: [String: TokenData] { queue.sync { _dailyConsumption } }
+    var dailyModelConsumption: [String: [String: TokenData]] { queue.sync { _dailyModelConsumption } }
 
     var hasRollbackData: Bool {
         rollbackRecord.total > 0
@@ -43,6 +47,8 @@ final class TokenDeltaTracker {
         var mRb: [String: TokenData] = [:]
         var dRb: [String: RollbackRecord] = [:]
         var dMRb: [String: [String: TokenData]] = [:]
+        var dCon: [String: TokenData] = [:]
+        var dMCon: [String: [String: TokenData]] = [:]
 
         let sql = """
             SELECT rowid, aggregate_id, type, data
@@ -88,6 +94,38 @@ final class TokenDeltaTracker {
             }
 
             let hasRevert = info["revert"] != nil
+
+            let prevSessionState = sessionTokens[aggregateId]
+            if !hasRevert, eventTimestamp > 0 {
+                if let prev = prevSessionState {
+                    let delta = TokenData(
+                        tokensInput: max(0, tokens.tokensInput - prev.tokensInput),
+                        tokensOutput: max(0, tokens.tokensOutput - prev.tokensOutput),
+                        tokensReasoning: max(0, tokens.tokensReasoning - prev.tokensReasoning),
+                        tokensCacheRead: max(0, tokens.tokensCacheRead - prev.tokensCacheRead),
+                        tokensCacheWrite: max(0, tokens.tokensCacheWrite - prev.tokensCacheWrite)
+                    )
+                    if delta.total > 0 {
+                        let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                        dCon[dateKey] = (dCon[dateKey] ?? .zero) + delta
+                        if let modelKey = sessionModels[aggregateId] {
+                            var dm = dMCon[dateKey] ?? [:]
+                            dm[modelKey] = (dm[modelKey] ?? .zero) + delta
+                            dMCon[dateKey] = dm
+                        }
+                    }
+                } else {
+                    if tokens.total > 0 {
+                        let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                        dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokens
+                        if let modelKey = sessionModels[aggregateId] ?? extractModelKey(from: info) {
+                            var dm = dMCon[dateKey] ?? [:]
+                            dm[modelKey] = (dm[modelKey] ?? .zero) + tokens
+                            dMCon[dateKey] = dm
+                        }
+                    }
+                }
+            }
 
             if hasRevert {
                 pendingRollbacks[aggregateId] = sessionTokens[aggregateId] ?? tokens
@@ -137,6 +175,8 @@ final class TokenDeltaTracker {
             _modelRollbacks = mRb
             _dailyRollbacks = dRb
             _dailyModelRollbacks = dMRb
+            _dailyConsumption = dCon
+            _dailyModelConsumption = dMCon
         }
     }
 
@@ -217,6 +257,106 @@ final class TokenDeltaTracker {
         for (key, modelRb) in dailyModelRollbacks where dateKeys.contains(key) {
             for (modelKey, tokens) in modelRb {
                 result[modelKey] = (result[modelKey] ?? .zero) + tokens
+            }
+        }
+        return result
+    }
+
+    // MARK: - Daily Consumption Query Methods
+
+    func consumption(year: String?, month: String?, day: String?) -> TokenData {
+        dailyConsumption.filter { key, _ in
+            Self.matchesDateFilter(key, year: year, month: month, day: day)
+        }.reduce(.zero) { $0 + $1.value }
+    }
+
+    func modelConsumption(year: String?, month: String?, day: String?) -> [String: TokenData] {
+        let matchingKeys = Set(dailyModelConsumption.keys.filter { key in
+            Self.matchesDateFilter(key, year: year, month: month, day: day)
+        })
+        var result: [String: TokenData] = [:]
+        for key in matchingKeys {
+            guard let mc = dailyModelConsumption[key] else { continue }
+            for (modelKey, tokens) in mc {
+                result[modelKey] = (result[modelKey] ?? .zero) + tokens
+            }
+        }
+        return result
+    }
+
+    func consumption(from startDate: Date, to endDate: Date) -> TokenData {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        return dailyConsumption.filter { keys.contains($0.key) }.reduce(.zero) { $0 + $1.value }
+    }
+
+    func modelConsumption(from startDate: Date, to endDate: Date) -> [String: TokenData] {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        var result: [String: TokenData] = [:]
+        for (key, mc) in dailyModelConsumption where keys.contains(key) {
+            for (modelKey, tokens) in mc {
+                result[modelKey] = (result[modelKey] ?? .zero) + tokens
+            }
+        }
+        return result
+    }
+
+    func consumption(days: Int) -> TokenData {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        guard let startDate = cal.date(byAdding: .day, value: -(days - 1), to: today) else { return .zero }
+        var dateKeys: Set<String> = []
+        for i in 0..<days {
+            if let date = cal.date(byAdding: .day, value: i, to: startDate) {
+                dateKeys.insert(Self.dailyDateFormatter.string(from: date))
+            }
+        }
+        return dailyConsumption.filter { dateKeys.contains($0.key) }.reduce(.zero) { $0 + $1.value }
+    }
+
+    func modelConsumption(days: Int) -> [String: TokenData] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        guard let startDate = cal.date(byAdding: .day, value: -(days - 1), to: today) else { return [:] }
+        var dateKeys: Set<String> = []
+        for i in 0..<days {
+            if let date = cal.date(byAdding: .day, value: i, to: startDate) {
+                dateKeys.insert(Self.dailyDateFormatter.string(from: date))
+            }
+        }
+        var result: [String: TokenData] = [:]
+        for (key, mc) in dailyModelConsumption where dateKeys.contains(key) {
+            for (modelKey, tokens) in mc {
+                result[modelKey] = (result[modelKey] ?? .zero) + tokens
+            }
+        }
+        return result
+    }
+
+    // MARK: - Daily ModelUsage Conversion
+
+    func dailyModelUsage(from startDate: Date, to endDate: Date) -> [DailyModelUsage] {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        var result: [DailyModelUsage] = []
+        for dateKey in keys.sorted() {
+            guard let date = df.date(from: dateKey) else { continue }
+            guard let mc = dailyModelConsumption[dateKey], !mc.isEmpty else { continue }
+            for (modelKey, tokens) in mc {
+                let parts = modelKey.split(separator: "/")
+                let modelId = String(parts[0])
+                let variant = parts.count > 1 ? String(parts[1]) : "default"
+                result.append(DailyModelUsage(
+                    id: "\(dateKey)/\(modelKey)",
+                    date: date,
+                    modelId: modelId,
+                    variant: variant,
+                    totalTokens: tokens.total,
+                    inputTokens: tokens.tokensInput,
+                    outputTokens: tokens.tokensOutput,
+                    cacheReadTokens: tokens.tokensCacheRead
+                ))
             }
         }
         return result

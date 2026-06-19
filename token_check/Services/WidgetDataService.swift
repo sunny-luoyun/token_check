@@ -37,20 +37,68 @@ final class WidgetDataService {
         let todayStart = todayStartMilliseconds()
         let sevenDaysAgo = todayStart - 6 * 86_400 * 1000
 
-        guard let todayRow = fetchTodayRow(db, todayStart) else { return nil }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        let todayKey = df.string(from: Date())
+
+        let todayFromEvents = TokenDeltaTracker.shared.dailyConsumption[todayKey]
+        let todayModelEvents = TokenDeltaTracker.shared.dailyModelConsumption[todayKey] ?? [:]
+        let sessionRow = fetchTodayRow(db, todayStart)
+
+        let input: Int
+        let output: Int
+        let cacheRead: Int
+        let sessionCount: Int
+
+        if let events = todayFromEvents {
+            input = events.tokensInput
+            output = events.tokensOutput
+            cacheRead = events.tokensCacheRead
+            sessionCount = sessionRow?.sessions ?? 0
+        } else if let row = sessionRow {
+            input = row.input
+            output = row.output
+            cacheRead = row.cacheRead
+            sessionCount = row.sessions
+        } else {
+            return nil
+        }
+
         let pricingRules = ModelPricingStore.lookup(from: ModelPricingStore.load())
-        let todayCost = calculateTodayCost(fetchTodayModelUsage(db, todayStart), pricingRules: pricingRules)
+        let todayCost: Double
+        if !todayModelEvents.isEmpty {
+            todayCost = calculateTodayCost(from: todayModelEvents, pricingRules: pricingRules)
+        } else {
+            let modelUsage = fetchTodayModelUsage(db, todayStart)
+            todayCost = modelUsage.isEmpty ? 0 : calculateTodayCost(modelUsage, pricingRules: pricingRules)
+        }
+
         let dailyTokens = fillMissingDays(fetchDailyTokens(db, sevenDaysAgo) ?? [], since: sevenDaysAgo)
 
         return TodayUsage(
-            totalTokens: todayRow.input + todayRow.cacheRead + todayRow.output,
-            inputTokens: todayRow.input,
-            outputTokens: todayRow.output,
-            cacheReadTokens: todayRow.cacheRead,
-            sessionCount: todayRow.sessions,
+            totalTokens: input + output + cacheRead,
+            inputTokens: input,
+            outputTokens: output,
+            cacheReadTokens: cacheRead,
+            sessionCount: sessionCount,
             dailyTokens: dailyTokens,
             todayCost: todayCost
         )
+    }
+
+    private func calculateTodayCost(from modelConsumption: [String: TokenData], pricingRules: [String: ModelPricingRule]) -> Double {
+        modelConsumption.reduce(0) { total, item in
+            let parts = item.key.split(separator: "/")
+            let modelId = String(parts[0])
+            let variant = parts.count > 1 ? String(parts[1]) : "default"
+            let pricing = pricingRules[item.key] ?? .defaults(modelId: modelId, variant: variant)
+            guard pricing.isEnabled else { return total }
+            return total
+                + Double(item.value.tokensInput) / 1_000_000 * pricing.inputMissPricePerMillion
+                + Double(item.value.tokensCacheRead) / 1_000_000 * pricing.cacheHitPricePerMillion
+                + Double(item.value.tokensOutput) / 1_000_000 * pricing.outputPricePerMillion
+        }
     }
 
     private func fillMissingDays(_ tokens: [DayTokenData], since cutoffMs: Int64) -> [DayTokenData] {

@@ -61,25 +61,69 @@ class CostViewModel: ObservableObject {
                     TokenDeltaTracker.shared.refresh(db: db)
                 }
                 let pricingRules = ModelPricingStore.load()
-                let breakdown: [ModelCostBreakdown]
+                let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
                 let rb: RollbackRecord
                 let modelRb: [String: TokenData]
+                let eventMc: [String: TokenData]
+                let sessionBreakdown: [ModelCostBreakdown]
                 let periods = try service.fetchAvailablePeriods()
 
                 if self.filterMode == .range {
-                    breakdown = try service.fetchModelCostBreakdown(from: self.startDate, to: self.endDate, pricingRules: pricingRules)
                     rb = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate)
                     modelRb = TokenDeltaTracker.shared.modelRollbacks(from: self.startDate, to: self.endDate)
+                    eventMc = TokenDeltaTracker.shared.modelConsumption(from: self.startDate, to: self.endDate)
+                    sessionBreakdown = try service.fetchModelCostBreakdown(from: self.startDate, to: self.endDate, pricingRules: pricingRules)
                 } else {
                     rb = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
-                    breakdown = try service.fetchModelCostBreakdown(
+                    modelRb = TokenDeltaTracker.shared.modelRollbacks(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
+                    eventMc = TokenDeltaTracker.shared.modelConsumption(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
+                    sessionBreakdown = try service.fetchModelCostBreakdown(
                         year: self.selectedYear,
                         month: self.selectedMonth,
                         day: self.selectedDay,
                         pricingRules: pricingRules
                     )
-                    modelRb = TokenDeltaTracker.shared.modelRollbacks(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                 }
+
+                var breakdownMap: [String: ModelCostBreakdown] = [:]
+                for (modelKey, tokens) in eventMc {
+                    let parts = modelKey.split(separator: "/")
+                    let modelId = String(parts[0])
+                    let variant = parts.count > 1 ? String(parts[1]) : "default"
+                    let pricing = pricingLookup[modelKey] ?? .defaults(modelId: modelId, variant: variant)
+                    breakdownMap[modelKey] = ModelCostBreakdown(
+                        id: modelKey,
+                        modelId: modelId,
+                        variant: variant,
+                        sessions: 0,
+                        cacheMissTokens: tokens.tokensInput,
+                        cacheHitTokens: tokens.tokensCacheRead,
+                        outputTokens: tokens.tokensOutput,
+                        reasoningTokens: tokens.tokensReasoning,
+                        pricing: pricing
+                    )
+                }
+                for item in sessionBreakdown {
+                    let key = item.id
+                    if var existing = breakdownMap[key] {
+                        existing = ModelCostBreakdown(
+                            id: existing.id,
+                            modelId: existing.modelId,
+                            variant: existing.variant,
+                            sessions: existing.sessions + item.sessions,
+                            cacheMissTokens: existing.cacheMissTokens,
+                            cacheHitTokens: existing.cacheHitTokens,
+                            outputTokens: existing.outputTokens,
+                            reasoningTokens: existing.reasoningTokens,
+                            pricing: existing.pricing
+                        )
+                        breakdownMap[key] = existing
+                    } else {
+                        breakdownMap[key] = item
+                    }
+                }
+                let breakdown = breakdownMap.values.sorted { $0.cacheMissTokens > $1.cacheMissTokens }
+
                 let summary = CostSummary.from(breakdown: breakdown)
                 let pricingDescription = Self.makePricingDescription(for: breakdown)
 
