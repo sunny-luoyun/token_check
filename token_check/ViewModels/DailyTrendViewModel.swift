@@ -123,7 +123,7 @@ class DailyTrendViewModel: ObservableObject {
                     rbTotal = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate).total
                     data = TokenDeltaTracker.shared.dailyModelUsage(from: self.startDate, to: self.endDate)
                 } else if self.isMonthlyMode {
-                    rbTotal = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay).total
+                    rbTotal = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: nil).total
                     if let year = self.selectedYear, let month = self.selectedMonth {
                         data = TokenDeltaTracker.shared.dailyModelUsage(from: Self.dateFrom(year: year, month: month), to: Self.lastDayOf(year: year, month: month))
                     } else {
@@ -151,7 +151,16 @@ class DailyTrendViewModel: ObservableObject {
                     days = try service.fetchAvailableDays(year: year, month: month)
                 }
 
-                let filledData = (self.isMonthlyMode || self.isCustomMode) ? filteredData : self.fillMissingDays(filteredData, days: self.days)
+                let filledData: [DailyModelUsage]
+                if self.isMonthlyMode, let year = self.selectedYear, let month = self.selectedMonth {
+                    let start = Self.dateFrom(year: year, month: month)
+                    let end = Self.lastDayOf(year: year, month: month)
+                    filledData = self.fillMissingDaysInRange(filteredData, from: start, to: end)
+                } else if self.isCustomMode {
+                    filledData = self.fillMissingDaysInRange(filteredData, from: self.startDate, to: self.endDate)
+                } else {
+                    filledData = self.fillMissingDays(filteredData, days: self.days)
+                }
 
                 DispatchQueue.main.async {
                     self.periods = periods
@@ -187,6 +196,51 @@ class DailyTrendViewModel: ObservableObject {
 
     func applyFilter() {
         load()
+    }
+
+    private func fillMissingDaysInRange(_ data: [DailyModelUsage], from startDate: Date, to endDate: Date) -> [DailyModelUsage] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: startDate)
+        let end = cal.startOfDay(for: endDate)
+
+        let allModels = Set(data.map { "\($0.modelId)\t\($0.variant)" })
+        let lookup = Dictionary(uniqueKeysWithValues: data.map {
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+            return ("\(df.string(from: $0.date))\t\($0.modelId)\t\($0.variant)", $0)
+        })
+
+        var result: [DailyModelUsage] = []
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+
+        var current = start
+        while current <= end {
+            let dateStr = df.string(from: current)
+            for key in allModels {
+                let parts = key.split(separator: "\t", maxSplits: 1)
+                let modelId = String(parts[0])
+                let variant = parts.count > 1 ? String(parts[1]) : "default"
+                let lookupKey = "\(dateStr)\t\(modelId)\t\(variant)"
+                if let item = lookup[lookupKey] {
+                    result.append(item)
+                } else {
+                    result.append(DailyModelUsage(
+                        id: "\(dateStr)/\(modelId)/\(variant)",
+                        date: current,
+                        modelId: modelId,
+                        variant: variant,
+                        totalTokens: 0,
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        cacheReadTokens: 0
+                    ))
+                }
+            }
+            guard let next = cal.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+        return result.sorted { $0.date < $1.date }
     }
 
     private func fillMissingDays(_ data: [DailyModelUsage], days: Int) -> [DailyModelUsage] {

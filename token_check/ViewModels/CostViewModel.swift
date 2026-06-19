@@ -111,10 +111,10 @@ class CostViewModel: ObservableObject {
                             modelId: existing.modelId,
                             variant: existing.variant,
                             sessions: existing.sessions + item.sessions,
-                            cacheMissTokens: existing.cacheMissTokens,
-                            cacheHitTokens: existing.cacheHitTokens,
-                            outputTokens: existing.outputTokens,
-                            reasoningTokens: existing.reasoningTokens,
+                            cacheMissTokens: max(existing.cacheMissTokens, item.cacheMissTokens),
+                            cacheHitTokens: max(existing.cacheHitTokens, item.cacheHitTokens),
+                            outputTokens: max(existing.outputTokens, item.outputTokens),
+                            reasoningTokens: max(existing.reasoningTokens, item.reasoningTokens),
                             pricing: existing.pricing
                         )
                         breakdownMap[key] = existing
@@ -122,7 +122,9 @@ class CostViewModel: ObservableObject {
                         breakdownMap[key] = item
                     }
                 }
-                let breakdown = breakdownMap.values.sorted { $0.cacheMissTokens > $1.cacheMissTokens }
+                let breakdown = breakdownMap.values
+                    .filter { $0.pricing.isEnabled }
+                    .sorted { $0.cacheMissTokens > $1.cacheMissTokens }
 
                 let summary = CostSummary.from(breakdown: breakdown)
                 let pricingDescription = Self.makePricingDescription(for: breakdown)
