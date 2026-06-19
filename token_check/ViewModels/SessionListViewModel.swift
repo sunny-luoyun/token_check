@@ -33,11 +33,11 @@ class SessionListViewModel: ObservableObject {
         sessionRollbacks.values.contains { $0.total > 0 }
     }
 
-    private let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") ?? .standard
+    private let defaults = UserDefaults.standard
     private static let showRollbackKey = "session_showRollback"
 
     init() {
-        showRollback = (UserDefaults(suiteName: "group.com.luoyun.tokencheck") ?? .standard).object(forKey: Self.showRollbackKey) as? Bool ?? true
+        showRollback = defaults.object(forKey: Self.showRollbackKey) as? Bool ?? true
     }
 
     var availableYears: [String] {

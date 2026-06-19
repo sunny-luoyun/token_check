@@ -310,6 +310,138 @@ final class DatabaseService {
         }
     }
 
+    // MARK: - Agent / Project / Efficiency Stats
+
+    func fetchAgentUsage(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> [AgentUsage] {
+        let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        return try readAll(
+            """
+            SELECT COALESCE(NULLIF(agent, ''), 'unknown'),
+                   COUNT(*),
+                   COALESCE(SUM(tokens_input), 0),
+                   COALESCE(SUM(tokens_output), 0),
+                   COALESCE(SUM(tokens_reasoning), 0),
+                   COALESCE(SUM(tokens_cache_read), 0),
+                   COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0),
+                   COALESCE(SUM(cost), 0)
+            FROM session
+            \(whereClause)
+            GROUP BY agent
+            ORDER BY COUNT(*) DESC
+            """,
+            parameters: params
+        ) { stmt in
+            AgentUsage(
+                agentName: text(stmt, 0) ?? "unknown",
+                sessions: int(stmt, 1),
+                inputTokens: int(stmt, 2),
+                outputTokens: int(stmt, 3),
+                reasoningTokens: int(stmt, 4),
+                cacheReadTokens: int(stmt, 5),
+                totalTokens: int(stmt, 6),
+                cost: double(stmt, 7)
+            )
+        }
+    }
+
+    func fetchProjectUsage(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> [ProjectUsage] {
+        let (rawWhere, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        let whereClause = rawWhere.isEmpty ? "" : rawWhere.replacingOccurrences(of: "time_created", with: "s.time_created")
+        return try readAll(
+            """
+            SELECT p.id,
+                   p.name,
+                   p.worktree,
+                   COUNT(*),
+                   COALESCE(SUM(s.tokens_input), 0),
+                   COALESCE(SUM(s.tokens_output), 0),
+                   COALESCE(SUM(s.tokens_reasoning), 0),
+                   COALESCE(SUM(s.tokens_cache_read), 0),
+                   COALESCE(SUM(s.tokens_input + s.tokens_output + s.tokens_reasoning + s.tokens_cache_read + s.tokens_cache_write), 0),
+                   COALESCE(SUM(s.cost), 0)
+            FROM session s
+            LEFT JOIN project p ON s.project_id = p.id
+            \(whereClause)
+            GROUP BY p.id
+            ORDER BY COUNT(*) DESC
+            """,
+            parameters: params
+        ) { stmt in
+            ProjectUsage(
+                projectId: text(stmt, 0) ?? "unknown",
+                projectName: text(stmt, 1) ?? "",
+                worktree: text(stmt, 2) ?? "/",
+                sessions: int(stmt, 3),
+                inputTokens: int(stmt, 4),
+                outputTokens: int(stmt, 5),
+                reasoningTokens: int(stmt, 6),
+                cacheReadTokens: int(stmt, 7),
+                totalTokens: int(stmt, 8),
+                cost: double(stmt, 9)
+            )
+        }
+    }
+
+    func fetchEfficiencySummary(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> ProductivitySummary {
+        let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        return try readOne(
+            """
+            SELECT COALESCE(SUM(summary_additions), 0),
+                   COALESCE(SUM(summary_deletions), 0),
+                   COALESCE(SUM(summary_files), 0),
+                   COUNT(*),
+                   COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0)
+            FROM session
+            \(whereClause)
+            """,
+            parameters: params
+        ) { stmt in
+            ProductivitySummary(
+                totalAdditions: int(stmt, 0),
+                totalDeletions: int(stmt, 1),
+                totalFiles: int(stmt, 2),
+                sessionsWithChanges: int(stmt, 3),
+                totalTokens: int(stmt, 4)
+            )
+        }
+    }
+
+    func fetchEfficiencyDetail(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, limit: Int = 100, offset: Int = 0) throws -> [SessionEfficiency] {
+        let (rawWhere, whereParams) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        let whereClause = rawWhere.isEmpty ? "" : rawWhere.replacingOccurrences(of: "time_created", with: "s.time_created")
+        let fullWhere = whereClause.isEmpty
+            ? "WHERE (COALESCE(s.summary_additions, 0) > 0 OR COALESCE(s.summary_deletions, 0) > 0)"
+            : whereClause + " AND (COALESCE(s.summary_additions, 0) > 0 OR COALESCE(s.summary_deletions, 0) > 0)"
+        return try readAll(
+            """
+            SELECT s.id,
+                   COALESCE(NULLIF(s.title, ''), s.slug, '(无标题)'),
+                   json_extract(s.model, '$.id'),
+                   COALESCE(NULLIF(s.agent, ''), 'unknown'),
+                   COALESCE(s.summary_additions, 0),
+                   COALESCE(s.summary_deletions, 0),
+                   COALESCE(s.summary_files, 0),
+                   COALESCE(s.tokens_input + s.tokens_output + s.tokens_reasoning + s.tokens_cache_read + s.tokens_cache_write, 0)
+            FROM session s
+            \(fullWhere)
+            ORDER BY s.time_created DESC
+            LIMIT ? OFFSET ?
+            """,
+            parameters: whereParams + [Int64(limit), Int64(offset)]
+        ) { stmt in
+            SessionEfficiency(
+                id: text(stmt, 0) ?? "",
+                title: text(stmt, 1) ?? "(无标题)",
+                modelId: text(stmt, 2) ?? "unknown",
+                agent: text(stmt, 3) ?? "unknown",
+                additions: int(stmt, 4),
+                deletions: int(stmt, 5),
+                files: int(stmt, 6),
+                totalTokens: int(stmt, 7)
+            )
+        }
+    }
+
     // MARK: - Time Filter Helpers
 
     private func buildTimeClause(year: String?, month: String?, day: String?, from startDate: Date?, to endDate: Date?) -> (clause: String, params: [Any]) {

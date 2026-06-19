@@ -31,11 +31,11 @@ class CostViewModel: ObservableObject {
         didSet { defaults.set(showRollback, forKey: Self.showRollbackKey) }
     }
 
-    private let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") ?? .standard
+    private let defaults = UserDefaults.standard
     private static let showRollbackKey = "cost_showRollback"
 
     init() {
-        showRollback = (UserDefaults(suiteName: "group.com.luoyun.tokencheck") ?? .standard).object(forKey: Self.showRollbackKey) as? Bool ?? true
+        showRollback = defaults.object(forKey: Self.showRollbackKey) as? Bool ?? true
     }
 
     var availableYears: [String] {

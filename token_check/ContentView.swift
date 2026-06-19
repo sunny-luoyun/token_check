@@ -4,12 +4,14 @@ enum AppTab: String, CaseIterable {
     case cost = "费用"
     case session = "会话"
     case trend = "趋势"
+    case stats = "统计"
 
     var icon: String {
         switch self {
         case .cost: return "yensign.circle.fill"
         case .session: return "list.bullet"
         case .trend: return "chart.line.uptrend.xyaxis"
+        case .stats: return "chart.bar.fill"
         }
     }
 }
@@ -32,6 +34,10 @@ struct ContentView: View {
                 }
                 if selectedTab == .trend {
                     DailyTrendView()
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+                if selectedTab == .stats {
+                    StatsView()
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }

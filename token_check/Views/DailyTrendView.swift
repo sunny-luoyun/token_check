@@ -3,7 +3,6 @@ import Charts
 
 struct DailyTrendView: View {
     @StateObject private var viewModel = DailyTrendViewModel()
-    @AppStorage(ModelPricingStore.storageKey, store: ModelPricingStore.sharedDefaults) private var pricingRulesData = Data()
 
     @Environment(\.appTheme) var theme
 
@@ -63,7 +62,7 @@ struct DailyTrendView: View {
         .onAppear {
             viewModel.load()
         }
-        .onChange(of: pricingRulesData) {
+        .onReceive(NotificationCenter.default.publisher(for: SharedStorage.pricingRulesUpdated)) { _ in
             viewModel.load()
         }
     }
