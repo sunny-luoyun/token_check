@@ -150,10 +150,10 @@ final class DatabaseService {
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
                    json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
-                   COALESCE(SUM(tokens_input), 0),
-                   COALESCE(SUM(tokens_cache_read), 0),
-                   COALESCE(SUM(tokens_output), 0),
-                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output), 0)
+                    COALESCE(SUM(tokens_input), 0),
+                    COALESCE(SUM(tokens_cache_read), 0),
+                    COALESCE(SUM(tokens_output), 0),
+                    COALESCE(SUM(tokens_reasoning), 0)
             FROM session
             \(whereClause)
             GROUP BY day, model_id, variant
@@ -172,10 +172,11 @@ final class DatabaseService {
                 date: date,
                 modelId: mid,
                 variant: variant,
-                totalTokens: int(stmt, 6),
                 inputTokens: int(stmt, 3),
                 outputTokens: int(stmt, 5),
-                cacheReadTokens: int(stmt, 4)
+                cacheReadTokens: int(stmt, 4),
+                reasoningTokens: int(stmt, 6),
+                cacheWriteTokens: 0
             )
         }
     }

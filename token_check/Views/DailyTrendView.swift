@@ -264,27 +264,13 @@ private struct TrendChartView: View {
 
     private func metricValue(for item: DailyModelUsage) -> Double {
         if isCost {
-            let key = "\(item.modelId)/\(item.variant)"
-            let pricing = viewModel.pricingLookup[key] ?? .defaults(modelId: item.modelId, variant: item.variant)
-            switch viewModel.selectedMetric {
-            case .total:
-                return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
-                    + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
-                    + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
-            case .input:
-                return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
-            case .cacheHit:
-                return Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
-            case .output:
-                return Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
-            }
-        } else {
-            switch viewModel.selectedMetric {
-            case .total: return Double(item.totalTokens)
-            case .input: return Double(item.inputTokens)
-            case .cacheHit: return Double(item.cacheReadTokens)
-            case .output: return Double(item.outputTokens)
-            }
+            return viewModel.cost(for: item, metric: viewModel.selectedMetric)
+        }
+        switch viewModel.selectedMetric {
+        case .total: return Double(item.totalTokens)
+        case .input: return Double(item.inputTokens)
+        case .cacheHit: return Double(item.cacheReadTokens)
+        case .output: return Double(item.outputTokens)
         }
     }
 

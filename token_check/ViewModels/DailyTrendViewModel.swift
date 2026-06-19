@@ -86,6 +86,7 @@ class DailyTrendViewModel: ObservableObject {
             return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
                 + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
                 + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+                + Double(item.reasoningTokens) / 1_000_000 * pricing.reasoningPricePerMillion
         case .input:
             return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
         case .cacheHit:
@@ -117,28 +118,52 @@ class DailyTrendViewModel: ObservableObject {
                 if let db = service.db {
                     TokenDeltaTracker.shared.refresh(db: db)
                 }
+                let cal = Calendar.current
                 let rbTotal: Int
-                let data: [DailyModelUsage]
+                var data: [DailyModelUsage]
+                var queryStart: Date?
+                var queryEnd: Date?
                 if self.isCustomMode {
+                    queryStart = self.startDate
+                    queryEnd = self.endDate
                     rbTotal = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate).total
                     data = TokenDeltaTracker.shared.dailyModelUsage(from: self.startDate, to: self.endDate)
                 } else if self.isMonthlyMode {
-                    rbTotal = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: nil).total
                     if let year = self.selectedYear, let month = self.selectedMonth {
-                        data = TokenDeltaTracker.shared.dailyModelUsage(from: Self.dateFrom(year: year, month: month), to: Self.lastDayOf(year: year, month: month))
+                        if self.filterMode == .day, let day = self.selectedDay {
+                            let date = Self.dateFrom(year: year, month: month, day: day)
+                            queryStart = date
+                            queryEnd = date
+                            rbTotal = TokenDeltaTracker.shared.rollback(year: year, month: month, day: day).total
+                            data = TokenDeltaTracker.shared.dailyModelUsage(from: date, to: date)
+                        } else {
+                            queryStart = Self.dateFrom(year: year, month: month)
+                            queryEnd = Self.lastDayOf(year: year, month: month)
+                            rbTotal = TokenDeltaTracker.shared.rollback(year: year, month: month, day: nil).total
+                            data = TokenDeltaTracker.shared.dailyModelUsage(from: queryStart!, to: queryEnd!)
+                        }
                     } else {
+                        rbTotal = 0
                         data = []
                     }
                 } else {
-                    rbTotal = TokenDeltaTracker.shared.rollback(days: self.days).total
-                    let cal = Calendar.current
                     let today = cal.startOfDay(for: Date())
-                    if let startDate = cal.date(byAdding: .day, value: -(self.days - 1), to: today) {
+                    queryEnd = today
+                    queryStart = cal.date(byAdding: .day, value: -(self.days - 1), to: today)
+                    rbTotal = TokenDeltaTracker.shared.rollback(days: self.days).total
+                    if let startDate = queryStart {
                         data = TokenDeltaTracker.shared.dailyModelUsage(from: startDate, to: today)
                     } else {
                         data = []
                     }
                 }
+
+                // 补充 session 表数据，填补 event 表可能缺失的历史记录
+                if let qs = queryStart, let qe = queryEnd {
+                    let sessionData = try service.fetchDailyUsageByModel(from: qs, to: qe)
+                    data = self.mergeDailyUsage(eventData: data, sessionData: sessionData)
+                }
+
                 let periods = try service.fetchAvailablePeriods()
                 let pricingRules = ModelPricingStore.load()
 
@@ -153,9 +178,14 @@ class DailyTrendViewModel: ObservableObject {
 
                 let filledData: [DailyModelUsage]
                 if self.isMonthlyMode, let year = self.selectedYear, let month = self.selectedMonth {
-                    let start = Self.dateFrom(year: year, month: month)
-                    let end = Self.lastDayOf(year: year, month: month)
-                    filledData = self.fillMissingDaysInRange(filteredData, from: start, to: end)
+                    if self.filterMode == .day, let day = self.selectedDay {
+                        let date = Self.dateFrom(year: year, month: month, day: day)
+                        filledData = self.fillMissingDaysInRange(filteredData, from: date, to: date)
+                    } else {
+                        let start = Self.dateFrom(year: year, month: month)
+                        let end = Self.lastDayOf(year: year, month: month)
+                        filledData = self.fillMissingDaysInRange(filteredData, from: start, to: end)
+                    }
                 } else if self.isCustomMode {
                     filledData = self.fillMissingDaysInRange(filteredData, from: self.startDate, to: self.endDate)
                 } else {
@@ -186,6 +216,11 @@ class DailyTrendViewModel: ObservableObject {
         return cal.date(from: DateComponents(year: Int(year), month: Int(month), day: 1)) ?? Date()
     }
 
+    private static func dateFrom(year: String, month: String, day: String) -> Date {
+        let cal = Calendar.current
+        return cal.date(from: DateComponents(year: Int(year), month: Int(month), day: Int(day))) ?? Date()
+    }
+
     private static func lastDayOf(year: String, month: String) -> Date {
         let cal = Calendar.current
         guard let first = cal.date(from: DateComponents(year: Int(year), month: Int(month), day: 1)),
@@ -198,22 +233,40 @@ class DailyTrendViewModel: ObservableObject {
         load()
     }
 
+    private func mergeDailyUsage(eventData: [DailyModelUsage], sessionData: [DailyModelUsage]) -> [DailyModelUsage] {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+
+        var resultMap: [String: DailyModelUsage] = [:]
+
+        for item in sessionData {
+            let key = "\(df.string(from: item.date))\t\(item.modelId)\t\(item.variant)"
+            resultMap[key] = item
+        }
+
+        for item in eventData {
+            let key = "\(df.string(from: item.date))\t\(item.modelId)\t\(item.variant)"
+            if resultMap[key] == nil {
+                resultMap[key] = item
+            }
+        }
+
+        return Array(resultMap.values)
+    }
+
     private func fillMissingDaysInRange(_ data: [DailyModelUsage], from startDate: Date, to endDate: Date) -> [DailyModelUsage] {
         let cal = Calendar.current
         let start = cal.startOfDay(for: startDate)
         let end = cal.startOfDay(for: endDate)
 
         let allModels = Set(data.map { "\($0.modelId)\t\($0.variant)" })
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
         let lookup = Dictionary(uniqueKeysWithValues: data.map {
-            let df = DateFormatter()
-            df.dateFormat = "yyyy-MM-dd"
-            return ("\(df.string(from: $0.date))\t\($0.modelId)\t\($0.variant)", $0)
+            ("\(df.string(from: $0.date))\t\($0.modelId)\t\($0.variant)", $0)
         })
 
         var result: [DailyModelUsage] = []
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
-
         var current = start
         while current <= end {
             let dateStr = df.string(from: current)
@@ -230,10 +283,11 @@ class DailyTrendViewModel: ObservableObject {
                         date: current,
                         modelId: modelId,
                         variant: variant,
-                        totalTokens: 0,
                         inputTokens: 0,
                         outputTokens: 0,
-                        cacheReadTokens: 0
+                        cacheReadTokens: 0,
+                        reasoningTokens: 0,
+                        cacheWriteTokens: 0
                     ))
                 }
             }
@@ -247,42 +301,6 @@ class DailyTrendViewModel: ObservableObject {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         guard let startDate = cal.date(byAdding: .day, value: -(days - 1), to: today) else { return data }
-
-        let allModels = Set(data.map { "\($0.modelId)\t\($0.variant)" })
-        let lookup = Dictionary(uniqueKeysWithValues: data.map {
-            let df = DateFormatter()
-            df.dateFormat = "yyyy-MM-dd"
-            return ("\(df.string(from: $0.date))\t\($0.modelId)\t\($0.variant)", $0)
-        })
-
-        var result: [DailyModelUsage] = []
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
-
-        for i in 0..<days {
-            guard let date = cal.date(byAdding: .day, value: i, to: startDate) else { continue }
-            let dateStr = df.string(from: date)
-            for key in allModels {
-                let parts = key.split(separator: "\t", maxSplits: 1)
-                let modelId = String(parts[0])
-                let variant = parts.count > 1 ? String(parts[1]) : "default"
-                let lookupKey = "\(dateStr)\t\(modelId)\t\(variant)"
-                if let item = lookup[lookupKey] {
-                    result.append(item)
-                } else {
-                    result.append(DailyModelUsage(
-                        id: "\(dateStr)/\(modelId)/\(variant)",
-                        date: date,
-                        modelId: modelId,
-                        variant: variant,
-                        totalTokens: 0,
-                        inputTokens: 0,
-                        outputTokens: 0,
-                        cacheReadTokens: 0
-                    ))
-                }
-            }
-        }
-        return result.sorted { $0.date < $1.date }
+        return fillMissingDaysInRange(data, from: startDate, to: today)
     }
 }

@@ -352,10 +352,11 @@ final class TokenDeltaTracker {
                     date: date,
                     modelId: modelId,
                     variant: variant,
-                    totalTokens: tokens.total,
                     inputTokens: tokens.tokensInput,
                     outputTokens: tokens.tokensOutput,
-                    cacheReadTokens: tokens.tokensCacheRead
+                    cacheReadTokens: tokens.tokensCacheRead,
+                    reasoningTokens: tokens.tokensReasoning,
+                    cacheWriteTokens: tokens.tokensCacheWrite
                 ))
             }
         }

@@ -4,6 +4,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
     static let defaultInputMissPricePerMillion = 1.0
     static let defaultCacheHitPricePerMillion = 0.02
     static let defaultOutputPricePerMillion = 2.0
+    static let defaultReasoningPricePerMillion = 2.0
 
     let modelId: String
     let variant: String
@@ -11,6 +12,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
     var inputMissPricePerMillion: Double
     var cacheHitPricePerMillion: Double
     var outputPricePerMillion: Double
+    var reasoningPricePerMillion: Double
 
     var id: String { pricingKey }
 
@@ -26,6 +28,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         inputMissPricePerMillion == Self.defaultInputMissPricePerMillion
             && cacheHitPricePerMillion == Self.defaultCacheHitPricePerMillion
             && outputPricePerMillion == Self.defaultOutputPricePerMillion
+            && reasoningPricePerMillion == Self.defaultReasoningPricePerMillion
     }
 
     enum CodingKeys: String, CodingKey {
@@ -35,6 +38,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         case inputMissPricePerMillion
         case cacheHitPricePerMillion
         case outputPricePerMillion
+        case reasoningPricePerMillion
     }
 
     init(
@@ -43,7 +47,8 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         isEnabled: Bool = true,
         inputMissPricePerMillion: Double,
         cacheHitPricePerMillion: Double,
-        outputPricePerMillion: Double
+        outputPricePerMillion: Double,
+        reasoningPricePerMillion: Double = defaultReasoningPricePerMillion
     ) {
         self.modelId = modelId
         self.variant = variant
@@ -51,6 +56,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         self.inputMissPricePerMillion = inputMissPricePerMillion
         self.cacheHitPricePerMillion = cacheHitPricePerMillion
         self.outputPricePerMillion = outputPricePerMillion
+        self.reasoningPricePerMillion = reasoningPricePerMillion
     }
 
     init(from decoder: Decoder) throws {
@@ -61,6 +67,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         inputMissPricePerMillion = try container.decode(Double.self, forKey: .inputMissPricePerMillion)
         cacheHitPricePerMillion = try container.decode(Double.self, forKey: .cacheHitPricePerMillion)
         outputPricePerMillion = try container.decode(Double.self, forKey: .outputPricePerMillion)
+        reasoningPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .reasoningPricePerMillion) ?? ModelPricingRule.defaultReasoningPricePerMillion
     }
 
     static func defaults(modelId: String, variant: String) -> ModelPricingRule {
@@ -70,7 +77,8 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
             isEnabled: true,
             inputMissPricePerMillion: defaultInputMissPricePerMillion,
             cacheHitPricePerMillion: defaultCacheHitPricePerMillion,
-            outputPricePerMillion: defaultOutputPricePerMillion
+            outputPricePerMillion: defaultOutputPricePerMillion,
+            reasoningPricePerMillion: defaultReasoningPricePerMillion
         )
     }
 }

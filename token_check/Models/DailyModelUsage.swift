@@ -5,10 +5,15 @@ struct DailyModelUsage: Identifiable {
     let date: Date
     let modelId: String
     let variant: String
-    let totalTokens: Int
     let inputTokens: Int
     let outputTokens: Int
     let cacheReadTokens: Int
+    let reasoningTokens: Int
+    let cacheWriteTokens: Int
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + cacheReadTokens + reasoningTokens + cacheWriteTokens
+    }
 
     var displayName: String {
         variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
