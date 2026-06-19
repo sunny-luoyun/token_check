@@ -7,6 +7,13 @@ struct SettingsView: View {
     @State private var pricingError: String?
     @State private var isLoadingPricing = false
 
+    @State private var diskUsage: DiskUsage?
+    @State private var isLoadingDisk = false
+    @State private var isCleaning = false
+    @State private var diskError: String?
+    @State private var showCleanAlert = false
+    @State private var cleanSuccess = false
+
     @Environment(\.appTheme) var theme
 
     var body: some View {
@@ -146,13 +153,74 @@ struct SettingsView: View {
             } header: {
                 settingsHeader(icon: "square.grid.2x2.fill", title: "桌面小组件", color: .green)
             }
+
+            Section {
+                if isLoadingDisk {
+                    HStack {
+                        Spacer()
+                        ProgressView("正在读取…")
+                        Spacer()
+                    }
+                    .padding(.vertical, 20)
+                } else if let diskError {
+                    Text(diskError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let diskUsage {
+                    DiskUsageDetailView(usage: diskUsage)
+
+                    if cleanSuccess {
+                        Label("清理完成！磁盘空间已释放。", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                            .padding(.leading, 36)
+                    }
+
+                    if isCleaning {
+                        HStack {
+                            Spacer()
+                            ProgressView("正在清理…")
+                            Spacer()
+                        }
+                        .padding(.vertical, 8)
+                    } else {
+                        Button("清理历史消息（保留统计数据）") {
+                            showCleanAlert = true
+                        }
+                        .disabled(isCleaning)
+                        .alert("确认清理", isPresented: $showCleanAlert) {
+                            Button("取消", role: .cancel) {}
+                            Button("确认清理", role: .destructive) {
+                                performCleanup()
+                            }
+                        } message: {
+                            Text("历史消息删除后无法恢复。\n会话记录和 token 统计不会受影响。")
+                        }
+
+                        HStack {
+                            Image(systemName: "info.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("仅删除对话内容，tokens / cost 等统计数据不变")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.leading, 36)
+                    }
+                }
+            } header: {
+                settingsHeader(icon: "internaldrive.fill", title: "磁盘用量", color: .cyan)
+            }
         }
-        .onAppear(perform: loadPricingRules)
+        .onAppear {
+            loadPricingRules()
+            loadDiskInfo()
+        }
         .onChange(of: pricingRules) {
             savePricingRules()
         }
         .formStyle(.grouped)
-        .frame(width: 760, height: 520)
+        .frame(width: 760, height: 700)
     }
 
     private func settingsHeader(icon: String, title: String, color: Color) -> some View {
@@ -294,6 +362,87 @@ struct SettingsView: View {
                 return $0.variant < $1.variant
             }
             return $0.modelId < $1.modelId
+        }
+    }
+
+    // MARK: - 磁盘用量
+
+    private func loadDiskInfo() {
+        isLoadingDisk = true
+        diskError = nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let service = DiskCleanupService()
+                let usage = try service.fetchDiskUsage()
+                DispatchQueue.main.async {
+                    self.diskUsage = usage
+                    self.isLoadingDisk = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.diskError = error.localizedDescription
+                    self.isLoadingDisk = false
+                }
+            }
+        }
+    }
+
+    private func performCleanup() {
+        isCleaning = true
+        cleanSuccess = false
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let service = DiskCleanupService()
+                try service.cleanupMessages()
+                let refreshed = try service.fetchDiskUsage()
+                DispatchQueue.main.async {
+                    self.diskUsage = refreshed
+                    self.isCleaning = false
+                    self.cleanSuccess = true
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isCleaning = false
+                    self.diskError = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 磁盘用量子视图
+
+private struct DiskUsageDetailView: View {
+    let usage: DiskUsage
+
+    var body: some View {
+        VStack(spacing: 8) {
+            DiskUsageRow(icon: "externaldrive.fill", label: "数据库文件", value: usage.dbFileSize)
+            DiskUsageRow(icon: "rectangle.stack.fill", label: "会话记录",   value: "\(usage.sessionCount) 条")
+            DiskUsageRow(icon: "text.bubble.fill",     label: "消息记录",   value: "\(usage.messageCount) 条")
+            DiskUsageRow(icon: "doc.text.fill",        label: "事件日志",   value: "\(usage.eventCount) 条")
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct DiskUsageRow: View {
+    let icon: String
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+            Text(label)
+                .font(.caption)
+            Spacer()
+            Text(value)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
     }
 }
