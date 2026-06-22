@@ -6,5 +6,6 @@ struct TokenCheckWidgetBundle: WidgetBundle {
     var body: some Widget {
         TokenCheckWidget()
         TokenCheckSmallWidget()
+        TokenCheckLargeWidget()
     }
 }

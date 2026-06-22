@@ -24,3 +24,12 @@ struct WidgetMonthlyHeatmapData: Decodable {
     let days: [WidgetDayTokenData]
     let firstWeekday: Int
 }
+
+struct WidgetYearlyHeatmapData: Decodable {
+    let year: Int
+    let totalTokens: Int
+    let avgDailyTokens: Int
+    let days: [WidgetDayTokenData]
+    let firstWeekday: Int
+    let totalDays: Int
+}

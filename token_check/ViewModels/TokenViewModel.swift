@@ -84,6 +84,11 @@ class TokenViewModel: ObservableObject {
                        let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
                         defaults.set(encoded, forKey: "monthly_heatmap")
                     }
+                    if let yearlyData = self.service.fetchYearlyData(),
+                       let encoded = try? JSONEncoder().encode(yearlyData),
+                       let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
+                        defaults.set(encoded, forKey: "yearly_heatmap")
+                    }
                     WidgetCenter.shared.reloadAllTimelines()
                 } else {
                     self.error = "无法读取数据库"
