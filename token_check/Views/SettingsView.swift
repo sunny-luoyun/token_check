@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("showDockIcon") private var showDockIcon = true
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage("deepseekApiKey") private var deepseekApiKey = ""
     @State private var pricingRules: [ModelPricingRule] = []
     @State private var pricingError: String?
@@ -36,6 +37,13 @@ struct SettingsView: View {
                     let appDelegate = NSApp.delegate as? AppDelegate
                     let hasVisibleMainWindow = appDelegate?.mainPanelController?.hasVisibleMainWindow() == true
                     NSApp.setActivationPolicy(hasVisibleMainWindow ? .regular : .accessory)
+                }
+                HStack {
+                    Image(systemName: "menubar.dock.rectangle")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                        .frame(width: 28)
+                    Toggle("显示菜单栏图标", isOn: $showMenuBarIcon)
                 }
             } header: {
                 settingsHeader(icon: "paintbrush.fill", title: "外观", color: .purple)

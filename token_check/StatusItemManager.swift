@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 final class StatusItemManager: NSObject, NSMenuDelegate {
-    private let statusItem: NSStatusItem
+    private var statusItem: NSStatusItem?
     private let popover: NSPopover
     private let model: TokenViewModel
     private let dwm: DesktopWidgetManager
@@ -12,27 +12,50 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
         self.model = model
         self.dwm = dwm
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         popover = NSPopover()
         popover.behavior = .transient
 
         super.init()
 
-        setupButton()
         setupPopover()
+        applyVisibility()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applyVisibility),
+            name: UserDefaults.didChangeNotification,
+            object: nil
+        )
     }
 
-    private func setupButton() {
-        guard let button = statusItem.button else { return }
-        button.action = #selector(handleClick)
-        button.target = self
-        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        updateButtonLabel()
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+        }
     }
 
-    private func updateButtonLabel() {
-        guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: "Token Check")
+    @objc private func applyVisibility() {
+        let visible = UserDefaults.standard.object(forKey: "showMenuBarIcon") as? Bool ?? true
+
+        if visible {
+            guard statusItem == nil else { return }
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            item.button?.action = #selector(handleClick)
+            item.button?.target = self
+            item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            item.button?.image = NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: "Token Check")
+            statusItem = item
+        } else {
+            guard let item = statusItem else { return }
+            if popover.isShown {
+                popover.performClose(nil)
+            }
+            contextMenu?.cancelTracking()
+            contextMenu = nil
+            statusItem = nil
+            NSStatusBar.system.removeStatusItem(item)
+        }
     }
 
     private func setupPopover() {
@@ -60,7 +83,7 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
     }
 
     private func togglePopover() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem?.button else { return }
         if popover.isShown {
             popover.performClose(nil)
         } else {
@@ -104,8 +127,8 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
         menu.addItem(quitItem)
 
         contextMenu = menu
-        statusItem.menu = menu
-        statusItem.button?.performClick(nil)
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
     }
 
     @objc private func toggleWidget() {
@@ -120,10 +143,7 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
         if popover.isShown {
             popover.performClose(nil)
         }
-
-        if let menu = contextMenu {
-            menu.cancelTracking()
-        }
+        contextMenu?.cancelTracking()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.restoreMainWindow()
@@ -142,7 +162,7 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
 
     func menuDidClose(_ menu: NSMenu) {
         guard contextMenu === menu else { return }
-        statusItem.menu = nil
+        statusItem?.menu = nil
         contextMenu = nil
     }
 }
