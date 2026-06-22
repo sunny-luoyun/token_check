@@ -161,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let model = TokenViewModel()
     let dwm = DesktopWidgetManager()
-    private var statusItemManager: StatusItemManager?
+    var statusItemManager: StatusItemManager?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
@@ -198,7 +198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         guard UserDefaults.standard.bool(forKey: "showDockIcon") == false,
               let mainPanelController,
-              !mainPanelController.hasVisibleMainWindow() else {
+              !mainPanelController.hasVisibleMainWindow(),
+              !NSApp.windows.contains(where: { $0.isVisible && $0.identifier != MainPanelController.mainWindowIdentifier }) else {
             return
         }
 
