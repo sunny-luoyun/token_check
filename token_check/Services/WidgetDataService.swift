@@ -17,6 +17,15 @@ struct TodayUsage: Codable {
     let todayCost: Double
 }
 
+struct MonthlyHeatmapData: Codable {
+    let year: Int
+    let month: Int
+    let totalTokens: Int
+    let avgDailyTokens: Int
+    let days: [DayTokenData]
+    let firstWeekday: Int
+}
+
 private struct TodayModelUsage {
     let modelId: String
     let variant: String
@@ -84,6 +93,69 @@ final class WidgetDataService {
             sessionCount: sessionCount,
             dailyTokens: dailyTokens,
             todayCost: todayCost
+        )
+    }
+
+    func fetchMonthData() -> MonthlyHeatmapData? {
+        guard let db = openDB() else { return nil }
+        defer { sqlite3_close(db) }
+
+        let cal = Calendar.current
+        let now = Date()
+        let year = cal.component(.year, from: now)
+        let month = cal.component(.month, from: now)
+
+        guard let monthStart = cal.date(from: DateComponents(year: year, month: month, day: 1)),
+              let monthEnd = cal.date(byAdding: .month, value: 1, to: monthStart) else { return nil }
+
+        let startMs = Int64(monthStart.timeIntervalSince1970 * 1000)
+        let endMs = Int64(monthEnd.timeIntervalSince1970 * 1000)
+        let firstWeekday = cal.component(.weekday, from: monthStart)
+        let daysInMonth = cal.range(of: .day, in: .month, for: monthStart)!.count
+
+        let sql = """
+            SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
+                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output), 0) AS total
+            FROM session
+            WHERE time_created >= ? AND time_created < ?
+            GROUP BY day
+            ORDER BY day
+        """
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, startMs)
+        sqlite3_bind_int64(stmt, 2, endMs)
+
+        var existing: [String: Int] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let cStr = sqlite3_column_text(stmt, 0) else { continue }
+            let day = String(cString: cStr)
+            existing[day] = Int(sqlite3_column_int64(stmt, 1))
+        }
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        var days: [DayTokenData] = []
+        var totalTokens = 0
+
+        for day in 1...daysInMonth {
+            guard let date = cal.date(from: DateComponents(year: year, month: month, day: day)) else { continue }
+            let key = df.string(from: date)
+            let tokens = existing[key] ?? 0
+            days.append(.init(id: key, date: date, totalTokens: tokens))
+            totalTokens += tokens
+        }
+
+        let avg = daysInMonth > 0 ? totalTokens / daysInMonth : 0
+        return MonthlyHeatmapData(
+            year: year,
+            month: month,
+            totalTokens: totalTokens,
+            avgDailyTokens: avg,
+            days: days,
+            firstWeekday: firstWeekday
         )
     }
 

@@ -15,3 +15,12 @@ struct WidgetTodayUsage: Decodable {
     let dailyTokens: [WidgetDayTokenData]
     let todayCost: Double
 }
+
+struct WidgetMonthlyHeatmapData: Decodable {
+    let year: Int
+    let month: Int
+    let totalTokens: Int
+    let avgDailyTokens: Int
+    let days: [WidgetDayTokenData]
+    let firstWeekday: Int
+}
