@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import WidgetKit
 
 class TokenViewModel: ObservableObject {
     @Published var usage: TodayUsage?
@@ -64,6 +65,21 @@ class TokenViewModel: ObservableObject {
                     self.adjustedOutput = result.outputTokens + todayRb.rolledBackOutput
                     self.adjustedCacheRead = result.cacheReadTokens + todayRb.rolledBackCacheRead
                     self.adjustedTotal = result.totalTokens + todayRb.total
+
+                    let widgetUsage = TodayUsage(
+                        totalTokens: self.adjustedTotal,
+                        inputTokens: self.adjustedInput,
+                        outputTokens: self.adjustedOutput,
+                        cacheReadTokens: self.adjustedCacheRead,
+                        sessionCount: result.sessionCount,
+                        dailyTokens: result.dailyTokens,
+                        todayCost: result.todayCost
+                    )
+                    if let data = try? JSONEncoder().encode(widgetUsage),
+                       let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
+                        defaults.set(data, forKey: "today_usage")
+                    }
+                    WidgetCenter.shared.reloadAllTimelines()
                 } else {
                     self.error = "无法读取数据库"
                 }

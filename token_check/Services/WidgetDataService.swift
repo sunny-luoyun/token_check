@@ -1,13 +1,13 @@
 import Foundation
 import SQLite3
 
-struct DayTokenData: Identifiable {
+struct DayTokenData: Identifiable, Codable {
     let id: String
     let date: Date
     let totalTokens: Int
 }
 
-struct TodayUsage {
+struct TodayUsage: Codable {
     let totalTokens: Int
     let inputTokens: Int
     let outputTokens: Int
