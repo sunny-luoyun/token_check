@@ -18,6 +18,7 @@ final class DesktopWidgetManager: ObservableObject {
 
     private var window: NSWindow?
     private weak var model: TokenViewModel?
+    private var lastFrameSave: Date = .distantPast
 
     func setup(model: TokenViewModel) {
         self.model = model
@@ -62,7 +63,10 @@ final class DesktopWidgetManager: ObservableObject {
 
         NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: win, queue: .main
-        ) { _ in
+        ) { [weak self] _ in
+            let now = Date()
+            guard let self, now.timeIntervalSince(self.lastFrameSave) >= 0.3 else { return }
+            self.lastFrameSave = now
             UserDefaults.standard.set(NSStringFromRect(win.frame), forKey: "desktop_widget_frame")
         }
 

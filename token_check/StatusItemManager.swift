@@ -24,7 +24,7 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
             self,
             selector: #selector(applyVisibility),
             name: UserDefaults.didChangeNotification,
-            object: nil
+            object: UserDefaults.standard
         )
     }
 

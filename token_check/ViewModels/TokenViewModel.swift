@@ -17,6 +17,7 @@ class TokenViewModel: ObservableObject {
 
     private let service = WidgetDataService()
     private var fileWatcherCancellable: AnyCancellable?
+    private var lastWidgetReload: Date = .distantPast
 
     init() {
         DatabaseFileWatcher.shared.startWatching()
@@ -56,40 +57,21 @@ class TokenViewModel: ObservableObject {
                 }
             }
 
+            let adjInput = result.map { $0.inputTokens + todayRb.rolledBackInput } ?? 0
+            let adjOutput = result.map { $0.outputTokens + todayRb.rolledBackOutput } ?? 0
+            let adjCacheRead = result.map { $0.cacheReadTokens + todayRb.rolledBackCacheRead } ?? 0
+            let adjTotal = result.map { $0.totalTokens + todayRb.total } ?? 0
+
+            // 主线程只更新 UI，不涉及任何跨进程调用
             DispatchQueue.main.async {
                 self.hasRollback = hasRb
                 self.rollbackTotal = todayRb.total
+                self.adjustedInput = adjInput
+                self.adjustedOutput = adjOutput
+                self.adjustedCacheRead = adjCacheRead
+                self.adjustedTotal = adjTotal
                 if let result {
                     self.usage = result
-                    self.adjustedInput = result.inputTokens + todayRb.rolledBackInput
-                    self.adjustedOutput = result.outputTokens + todayRb.rolledBackOutput
-                    self.adjustedCacheRead = result.cacheReadTokens + todayRb.rolledBackCacheRead
-                    self.adjustedTotal = result.totalTokens + todayRb.total
-
-                    let widgetUsage = TodayUsage(
-                        totalTokens: self.adjustedTotal,
-                        inputTokens: self.adjustedInput,
-                        outputTokens: self.adjustedOutput,
-                        cacheReadTokens: self.adjustedCacheRead,
-                        sessionCount: result.sessionCount,
-                        dailyTokens: result.dailyTokens,
-                        todayCost: result.todayCost
-                    )
-                    if let data = try? JSONEncoder().encode(widgetUsage),
-                       let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
-                        defaults.set(data, forKey: "today_usage")
-                    }
-                    if let monthData = self.service.fetchMonthData(),
-                       let encoded = try? JSONEncoder().encode(monthData),
-                       let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
-                        defaults.set(encoded, forKey: "monthly_heatmap")
-                    }
-                    if let yearlyData = self.service.fetchYearlyData(),
-                       let encoded = try? JSONEncoder().encode(yearlyData),
-                       let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
-                        defaults.set(encoded, forKey: "yearly_heatmap")
-                    }
-                    WidgetCenter.shared.reloadAllTimelines()
                 } else {
                     self.error = "无法读取数据库"
                 }
@@ -99,6 +81,37 @@ class TokenViewModel: ObservableObject {
                     self.deepseekLoading = false
                 }
             }
+
+            // 跨进程操作（UserDefaults + WidgetCenter）在后台执行，绝不阻塞主线程
+            guard let result else { return }
+            let widgetUsage = TodayUsage(
+                totalTokens: adjTotal,
+                inputTokens: adjInput,
+                outputTokens: adjOutput,
+                cacheReadTokens: adjCacheRead,
+                sessionCount: result.sessionCount,
+                dailyTokens: result.dailyTokens,
+                todayCost: result.todayCost
+            )
+            if let data = try? JSONEncoder().encode(widgetUsage),
+               let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
+                defaults.set(data, forKey: "today_usage")
+            }
+            if let monthData = self.service.fetchMonthData(),
+               let encoded = try? JSONEncoder().encode(monthData),
+               let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
+                defaults.set(encoded, forKey: "monthly_heatmap")
+            }
+            if let yearlyData = self.service.fetchYearlyData(),
+               let encoded = try? JSONEncoder().encode(yearlyData),
+               let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
+                defaults.set(encoded, forKey: "yearly_heatmap")
+            }
+            // 节流：每分钟最多 reload 一次 Widget
+            let now = Date()
+            guard now.timeIntervalSince(self.lastWidgetReload) >= 60 else { return }
+            self.lastWidgetReload = now
+            WidgetCenter.shared.reloadAllTimelines()
         }
     }
 }
