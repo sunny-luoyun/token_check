@@ -33,9 +33,9 @@ class TokenViewModel: ObservableObject {
             deepseekLoading = !apiKey.isEmpty
         }
         error = nil
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
-            if let ds = try? DatabaseService(), let db = ds.db {
+            if let ds = DatabaseService.shared, let db = ds.db {
                 TokenDeltaTracker.shared.refresh(db: db)
             }
             let df = DateFormatter()

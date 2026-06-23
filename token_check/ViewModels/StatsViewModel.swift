@@ -56,10 +56,10 @@ class StatsViewModel: ObservableObject {
         isLoading = true
         error = nil
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
             do {
-                let service = try DatabaseService()
+                guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
                 let periods = try service.fetchAvailablePeriods()
 
                 let agents = try service.fetchAgentUsage(

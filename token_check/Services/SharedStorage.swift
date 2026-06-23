@@ -26,14 +26,14 @@ final class SharedStorage {
     }
 
     func write<T: Encodable>(_ key: String, value: T) {
-        queue.sync {
-            guard let url = fileURL(for: key),
+        queue.async {
+            guard let url = self.fileURL(for: key),
                   let data = try? JSONEncoder().encode(value) else { return }
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? data.write(to: url, options: .atomic)
-        }
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: Self.pricingRulesUpdated, object: nil)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: Self.pricingRulesUpdated, object: nil)
+            }
         }
     }
 }

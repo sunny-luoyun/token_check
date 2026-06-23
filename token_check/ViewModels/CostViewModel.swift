@@ -53,13 +53,10 @@ class CostViewModel: ObservableObject {
         isLoading = true
         error = nil
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
             do {
-                let service = try DatabaseService()
-                if let db = service.db {
-                    TokenDeltaTracker.shared.refresh(db: db)
-                }
+                guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
                 let pricingRules = ModelPricingStore.load()
                 let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
                 let rb: RollbackRecord

@@ -19,6 +19,15 @@ enum DatabaseError: LocalizedError {
 }
 
 final class DatabaseService {
+    static let shared = try? DatabaseService()
+
+    static let loadQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 2
+        q.qualityOfService = .userInitiated
+        return q
+    }()
+
     internal var db: OpaquePointer?
 
     init() throws {
@@ -31,6 +40,7 @@ final class DatabaseService {
             throw DatabaseError.cannotOpen(path)
         }
         sqlite3_busy_timeout(db, 5000)
+        sqlite3_exec(db, "PRAGMA journal_mode=WAL", nil, nil, nil)
     }
 
     deinit {

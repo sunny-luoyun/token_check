@@ -1,26 +1,27 @@
 import Foundation
 import SQLite3
 
+@propertyWrapper
+struct Atomic<Value> {
+    private let lock = NSLock()
+    private var value: Value
+    init(wrappedValue: Value) { self.value = wrappedValue }
+    var wrappedValue: Value {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
+    }
+}
+
 final class TokenDeltaTracker {
     static let shared = TokenDeltaTracker()
 
-    private let queue = DispatchQueue(label: "com.luoyun.tokencheck.delta-tracker")
-
-    private var _rollbackRecord = RollbackRecord.zero
-    private var _sessionRollbacks: [String: TokenData] = [:]
-    private var _modelRollbacks: [String: TokenData] = [:]
-    private var _dailyRollbacks: [String: RollbackRecord] = [:]
-    private var _dailyModelRollbacks: [String: [String: TokenData]] = [:]
-    private var _dailyConsumption: [String: TokenData] = [:]
-    private var _dailyModelConsumption: [String: [String: TokenData]] = [:]
-
-    var rollbackRecord: RollbackRecord { queue.sync { _rollbackRecord } }
-    var sessionRollbacks: [String: TokenData] { queue.sync { _sessionRollbacks } }
-    var modelRollbacks: [String: TokenData] { queue.sync { _modelRollbacks } }
-    var dailyRollbacks: [String: RollbackRecord] { queue.sync { _dailyRollbacks } }
-    var dailyModelRollbacks: [String: [String: TokenData]] { queue.sync { _dailyModelRollbacks } }
-    var dailyConsumption: [String: TokenData] { queue.sync { _dailyConsumption } }
-    var dailyModelConsumption: [String: [String: TokenData]] { queue.sync { _dailyModelConsumption } }
+    @Atomic var rollbackRecord = RollbackRecord.zero
+    @Atomic var sessionRollbacks: [String: TokenData] = [:]
+    @Atomic var modelRollbacks: [String: TokenData] = [:]
+    @Atomic var dailyRollbacks: [String: RollbackRecord] = [:]
+    @Atomic var dailyModelRollbacks: [String: [String: TokenData]] = [:]
+    @Atomic var dailyConsumption: [String: TokenData] = [:]
+    @Atomic var dailyModelConsumption: [String: [String: TokenData]] = [:]
 
     var hasRollbackData: Bool {
         rollbackRecord.total > 0
@@ -53,6 +54,7 @@ final class TokenDeltaTracker {
         let sql = """
             SELECT rowid, aggregate_id, type, data
             FROM event
+            WHERE rowid > (SELECT COALESCE(MAX(rowid), 0) - 100000 FROM event)
             ORDER BY rowid
         """
 
@@ -169,15 +171,13 @@ final class TokenDeltaTracker {
             }
         }
 
-        queue.sync {
-            _rollbackRecord = rb
-            _sessionRollbacks = sRb
-            _modelRollbacks = mRb
-            _dailyRollbacks = dRb
-            _dailyModelRollbacks = dMRb
-            _dailyConsumption = dCon
-            _dailyModelConsumption = dMCon
-        }
+        rollbackRecord = rb
+        sessionRollbacks = sRb
+        modelRollbacks = mRb
+        dailyRollbacks = dRb
+        dailyModelRollbacks = dMRb
+        dailyConsumption = dCon
+        dailyModelConsumption = dMCon
     }
 
     func rollback(year: String?, month: String?, day: String?) -> RollbackRecord {
