@@ -23,6 +23,14 @@ final class TokenDeltaTracker {
     @Atomic var dailyConsumption: [String: TokenData] = [:]
     @Atomic var dailyModelConsumption: [String: [String: TokenData]] = [:]
 
+    // 增量处理缓存：记录上次处理到的 event rowid 和中间状态
+    @Atomic var lastProcessedRowId: Int64 = 0
+    @Atomic var sessionTokenCache: [String: TokenData] = [:]
+    @Atomic var sessionModelCache: [String: String] = [:]
+    @Atomic var pendingRbCache: [String: TokenData] = [:]
+    @Atomic var pendingRbModelCache: [String: String] = [:]
+    @Atomic var pendingRbTimestampCache: [String: Int64] = [:]
+
     var hasRollbackData: Bool {
         rollbackRecord.total > 0
     }
@@ -37,24 +45,38 @@ final class TokenDeltaTracker {
     private init() {}
 
     func refresh(db: OpaquePointer) {
-        var sessionTokens: [String: TokenData] = [:]
-        var sessionModels: [String: String] = [:]
-        var pendingRollbacks: [String: TokenData] = [:]
-        var pendingRollbackModels: [String: String] = [:]
-        var pendingRollbackTimestamps: [String: Int64] = [:]
+        // 获取当前最大 rowid
+        var maxStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COALESCE(MAX(rowid), 0) FROM event", -1, &maxStmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(maxStmt) }
+        var maxRowId: Int64 = 0
+        if sqlite3_step(maxStmt) == SQLITE_ROW {
+            maxRowId = sqlite3_column_int64(maxStmt, 0)
+        }
+        let startRowId = lastProcessedRowId
+        guard maxRowId > startRowId else { return }
 
-        var rb = RollbackRecord.zero
-        var sRb: [String: TokenData] = [:]
-        var mRb: [String: TokenData] = [:]
-        var dRb: [String: RollbackRecord] = [:]
-        var dMRb: [String: [String: TokenData]] = [:]
-        var dCon: [String: TokenData] = [:]
-        var dMCon: [String: [String: TokenData]] = [:]
+        // 加载缓存的 session 状态
+        var sessionTokens = sessionTokenCache
+        var sessionModels = sessionModelCache
+        var pendingRollbacks = pendingRbCache
+        var pendingRollbackModels = pendingRbModelCache
+        var pendingRollbackTimestamps = pendingRbTimestampCache
 
+        // 加载已有累计值，增量追加
+        var rb = rollbackRecord
+        var sRb = sessionRollbacks
+        var mRb = modelRollbacks
+        var dRb = dailyRollbacks
+        var dMRb = dailyModelRollbacks
+        var dCon = dailyConsumption
+        var dMCon = dailyModelConsumption
+
+        // 只处理新增的 event
         let sql = """
             SELECT rowid, aggregate_id, type, data
             FROM event
-            WHERE rowid > (SELECT COALESCE(MAX(rowid), 0) - 100000 FROM event)
+            WHERE rowid > ?
             ORDER BY rowid
         """
 
@@ -64,6 +86,7 @@ final class TokenDeltaTracker {
             return
         }
         defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, startRowId)
 
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let aggregateId = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
@@ -171,6 +194,14 @@ final class TokenDeltaTracker {
             }
         }
 
+        // 写回缓存
+        sessionTokenCache = sessionTokens
+        sessionModelCache = sessionModels
+        pendingRbCache = pendingRollbacks
+        pendingRbModelCache = pendingRollbackModels
+        pendingRbTimestampCache = pendingRollbackTimestamps
+
+        // 写回累计值
         rollbackRecord = rb
         sessionRollbacks = sRb
         modelRollbacks = mRb
@@ -178,6 +209,8 @@ final class TokenDeltaTracker {
         dailyModelRollbacks = dMRb
         dailyConsumption = dCon
         dailyModelConsumption = dMCon
+
+        lastProcessedRowId = maxRowId
     }
 
     func rollback(year: String?, month: String?, day: String?) -> RollbackRecord {

@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var diskError: String?
     @State private var showCleanAlert = false
     @State private var cleanSuccess = false
+    @AppStorage("widgetRefreshInterval") private var widgetRefreshInterval = 60
 
     @Environment(\.appTheme) var theme
 
@@ -156,6 +157,25 @@ struct SettingsView: View {
                         Text("菜单栏点击「移动」可拖拽，再点「固定」锁定")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                }
+                HStack(spacing: 12) {
+                    Image(systemName: "timer")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("数据刷新间隔")
+                            .font(.subheadline.weight(.medium))
+                        Picker("", selection: $widgetRefreshInterval) {
+                            Text("1 分钟").tag(60)
+                            Text("2 分钟").tag(120)
+                            Text("5 分钟").tag(300)
+                            Text("10 分钟").tag(600)
+                            Text("15 分钟").tag(900)
+                            Text("30 分钟").tag(1800)
+                        }
+                        .labelsHidden()
                     }
                 }
             } header: {

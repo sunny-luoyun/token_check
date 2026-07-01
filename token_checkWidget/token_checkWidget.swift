@@ -1,5 +1,8 @@
 import WidgetKit
 import SwiftUI
+import OSLog
+
+private let widgetLogger = Logger(subsystem: "com.luoyun.tokencheck", category: "widget-extension")
 
 struct TokenWidgetEntry: TimelineEntry {
     let date: Date
@@ -23,10 +26,12 @@ struct TokenTimelineProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<TokenWidgetEntry>) -> Void) {
+        let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
         let entry = TokenWidgetEntry(date: Date(), usage: usage)
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
+        widgetLogger.debug("TokenCheckWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
     }
 }
@@ -178,10 +183,12 @@ struct HeatmapTimelineProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<HeatmapWidgetEntry>) -> Void) {
+        let t0 = CFAbsoluteTimeGetCurrent()
         let data = readHeatmapFromAppGroup()
         let entry = HeatmapWidgetEntry(date: Date(), data: data)
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
+        widgetLogger.debug("HeatmapWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
     }
 }
@@ -332,6 +339,15 @@ struct LargeWidgetEntry: TimelineEntry {
 }
 
 private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
+    // 优先读文件（新路径）
+    if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") {
+        let url = container.appendingPathComponent("yearly_heatmap.json")
+        if let data = try? Data(contentsOf: url),
+           let result = try? JSONDecoder().decode(WidgetYearlyHeatmapData.self, from: data) {
+            return result
+        }
+    }
+    // 回退读 UserDefaults（旧数据，直到下一次 refresh 写入文件）
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
           let data = defaults.data(forKey: "yearly_heatmap") else { return nil }
     return try? JSONDecoder().decode(WidgetYearlyHeatmapData.self, from: data)
@@ -349,11 +365,13 @@ struct LargeWidgetTimelineProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<LargeWidgetEntry>) -> Void) {
+        let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
         let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly)
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
+        widgetLogger.debug("LargeWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
     }
 }

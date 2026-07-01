@@ -23,7 +23,7 @@ final class DatabaseService {
 
     static let loadQueue: OperationQueue = {
         let q = OperationQueue()
-        q.maxConcurrentOperationCount = 2
+        q.maxConcurrentOperationCount = 1
         q.qualityOfService = .userInitiated
         return q
     }()

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SQLite3
 
 struct DayTokenData: Identifiable, Codable {
@@ -48,9 +49,13 @@ private struct TodayModelUsage {
 }
 
 final class WidgetDataService {
+    private let logger = Logger(subsystem: "com.luoyun.tokencheck", category: "widget-data")
+
     func fetchTodayUsage() -> TodayUsage? {
+        let t0 = CFAbsoluteTimeGetCurrent()
         guard let db = openDB() else { return nil }
         defer { sqlite3_close(db) }
+        defer { self.logger.debug("fetchTodayUsage SQL: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms") }
 
         let todayStart = todayStartMilliseconds()
         let sevenDaysAgo = todayStart - 6 * 86_400 * 1000
@@ -106,8 +111,10 @@ final class WidgetDataService {
     }
 
     func fetchYearlyData() -> YearlyHeatmapData? {
+        let t0 = CFAbsoluteTimeGetCurrent()
         guard let db = openDB() else { return nil }
         defer { sqlite3_close(db) }
+        defer { self.logger.debug("fetchYearlyData SQL: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms") }
 
         let cal = Calendar.current
         let now = Date()
@@ -168,8 +175,10 @@ final class WidgetDataService {
     }
 
     func fetchMonthData() -> MonthlyHeatmapData? {
+        let t0 = CFAbsoluteTimeGetCurrent()
         guard let db = openDB() else { return nil }
         defer { sqlite3_close(db) }
+        defer { self.logger.debug("fetchMonthData SQL: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms") }
 
         let cal = Calendar.current
         let now = Date()
