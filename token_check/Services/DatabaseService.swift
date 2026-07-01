@@ -220,7 +220,7 @@ final class DatabaseService {
         }
     }
 
-    func fetchModelCostBreakdown(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, pricingRules: [ModelPricingRule] = []) throws -> [ModelCostBreakdown] {
+    func fetchModelCostBreakdown(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, pricingRules: [ModelPricingRule] = [], referenceDate: Date = .now) throws -> [ModelCostBreakdown] {
         let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
         let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
         return try readAll(
@@ -241,6 +241,7 @@ final class DatabaseService {
         ) { stmt in
             let modelId = text(stmt, 0) ?? "unknown"
             let variant = text(stmt, 1) ?? "default"
+            let pricing = pricingLookup["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
             return ModelCostBreakdown(
                 id: "\(modelId)/\(variant)",
                 modelId: modelId,
@@ -250,37 +251,58 @@ final class DatabaseService {
                 cacheHitTokens: int(stmt, 4),
                 outputTokens: int(stmt, 5),
                 reasoningTokens: int(stmt, 6),
-                pricing: pricingLookup["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
+                pricing: pricing,
+                referenceDate: referenceDate
             )
         }
         .filter { $0.pricing.isEnabled }
     }
 
-    func fetchCostSummary(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> CostSummary {
+    func fetchCostSummary(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, pricingRules: [ModelPricingRule] = [], referenceDate: Date = .now) throws -> CostSummary {
         let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
-        return try readOne(
+        let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
+        let rows = try readAll(
             """
-            SELECT COALESCE(SUM(tokens_input), 0),
-                   COALESCE(SUM(tokens_cache_read), 0),
-                   COALESCE(SUM(tokens_output), 0),
-                   COALESCE(SUM(tokens_reasoning), 0),
-                   COUNT(*)
+            SELECT json_extract(model, '$.id') AS model_id,
+                   CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
+                   COALESCE(SUM(tokens_input), 0) AS miss,
+                   COALESCE(SUM(tokens_cache_read), 0) AS hit,
+                   COALESCE(SUM(tokens_output), 0) AS output,
+                   COALESCE(SUM(tokens_reasoning), 0) AS reasoning,
+                   COUNT(*) AS sessions
             FROM session
             \(whereClause)
+            GROUP BY model_id, variant
             """,
             parameters: params
         ) { stmt in
-            CostSummary(
-                totalMissTokens: int(stmt, 0),
-                totalHitTokens: int(stmt, 1),
-                totalOutputTokens: int(stmt, 2),
-                totalReasoningTokens: int(stmt, 3),
-                sessionCount: int(stmt, 4),
-                missCost: Double(int(stmt, 0)) / 1_000_000 * ModelPricingRule.defaultInputMissPricePerMillion,
-                hitCost: Double(int(stmt, 1)) / 1_000_000 * ModelPricingRule.defaultCacheHitPricePerMillion,
-                outputCost: Double(int(stmt, 2)) / 1_000_000 * ModelPricingRule.defaultOutputPricePerMillion
-            )
+            let modelId = text(stmt, 0) ?? "unknown"
+            let variant = text(stmt, 1) ?? "default"
+            let pricing = pricingLookup["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
+            let prices = pricing.price(at: referenceDate)
+            let miss = int(stmt, 2)
+            let hit = int(stmt, 3)
+            let output = int(stmt, 4)
+            let reasoning = int(stmt, 5)
+            return (miss: miss, hit: hit, output: output, reasoning: reasoning, sessions: int(stmt, 6),
+                    missPrice: prices.inputMiss, hitPrice: prices.cacheHit, outputPrice: prices.output)
         }
+        guard !rows.isEmpty else {
+            return CostSummary(totalMissTokens: 0, totalHitTokens: 0, totalOutputTokens: 0, totalReasoningTokens: 0, sessionCount: 0, missCost: 0, hitCost: 0, outputCost: 0)
+        }
+        var totalMiss = 0, totalHit = 0, totalOutput = 0, totalReasoning = 0, totalSessions = 0
+        var missCost = 0.0, hitCost = 0.0, outputCost = 0.0
+        for row in rows {
+            totalMiss += row.miss
+            totalHit += row.hit
+            totalOutput += row.output
+            totalReasoning += row.reasoning
+            totalSessions += row.sessions
+            missCost += Double(row.miss) / 1_000_000 * row.missPrice
+            hitCost += Double(row.hit) / 1_000_000 * row.hitPrice
+            outputCost += Double(row.output) / 1_000_000 * row.outputPrice
+        }
+        return CostSummary(totalMissTokens: totalMiss, totalHitTokens: totalHit, totalOutputTokens: totalOutput, totalReasoningTokens: totalReasoning, sessionCount: totalSessions, missCost: missCost, hitCost: hitCost, outputCost: outputCost)
     }
 
     func fetchSessions(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, limit: Int = 100, offset: Int = 0) throws -> [Session] {

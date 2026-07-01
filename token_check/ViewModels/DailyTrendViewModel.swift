@@ -81,18 +81,19 @@ class DailyTrendViewModel: ObservableObject {
     func cost(for item: DailyModelUsage, metric: MetricType) -> Double {
         let key = "\(item.modelId)/\(item.variant)"
         let pricing = pricingLookup[key] ?? .defaults(modelId: item.modelId, variant: item.variant)
+        let prices = pricing.price(at: item.date)
         switch metric {
         case .total:
-            return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
-                + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
-                + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
-                + Double(item.reasoningTokens) / 1_000_000 * pricing.reasoningPricePerMillion
+            return Double(item.inputTokens) / 1_000_000 * prices.inputMiss
+                + Double(item.cacheReadTokens) / 1_000_000 * prices.cacheHit
+                + Double(item.outputTokens) / 1_000_000 * prices.output
+                + Double(item.reasoningTokens) / 1_000_000 * prices.reasoning
         case .input:
-            return Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+            return Double(item.inputTokens) / 1_000_000 * prices.inputMiss
         case .cacheHit:
-            return Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+            return Double(item.cacheReadTokens) / 1_000_000 * prices.cacheHit
         case .output:
-            return Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+            return Double(item.outputTokens) / 1_000_000 * prices.output
         }
     }
 

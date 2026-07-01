@@ -64,13 +64,16 @@ class CostViewModel: ObservableObject {
                 let eventMc: [String: TokenData]
                 let sessionBreakdown: [ModelCostBreakdown]
                 let periods = try service.fetchAvailablePeriods()
+                let referenceDate: Date
 
                 if self.filterMode == .range {
+                    referenceDate = self.endDate
                     rb = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate)
                     modelRb = TokenDeltaTracker.shared.modelRollbacks(from: self.startDate, to: self.endDate)
                     eventMc = TokenDeltaTracker.shared.modelConsumption(from: self.startDate, to: self.endDate)
-                    sessionBreakdown = try service.fetchModelCostBreakdown(from: self.startDate, to: self.endDate, pricingRules: pricingRules)
+                    sessionBreakdown = try service.fetchModelCostBreakdown(from: self.startDate, to: self.endDate, pricingRules: pricingRules, referenceDate: referenceDate)
                 } else {
+                    referenceDate = .now
                     rb = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                     modelRb = TokenDeltaTracker.shared.modelRollbacks(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                     eventMc = TokenDeltaTracker.shared.modelConsumption(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
@@ -78,7 +81,8 @@ class CostViewModel: ObservableObject {
                         year: self.selectedYear,
                         month: self.selectedMonth,
                         day: self.selectedDay,
-                        pricingRules: pricingRules
+                        pricingRules: pricingRules,
+                        referenceDate: referenceDate
                     )
                 }
 
@@ -97,12 +101,14 @@ class CostViewModel: ObservableObject {
                         cacheHitTokens: tokens.tokensCacheRead,
                         outputTokens: tokens.tokensOutput,
                         reasoningTokens: tokens.tokensReasoning,
-                        pricing: pricing
+                        pricing: pricing,
+                        referenceDate: referenceDate
                     )
                 }
                 for item in sessionBreakdown {
                     let key = item.id
                     if var existing = breakdownMap[key] {
+                        let prices = existing.pricing.price(at: referenceDate)
                         existing = ModelCostBreakdown(
                             id: existing.id,
                             modelId: existing.modelId,
@@ -112,7 +118,10 @@ class CostViewModel: ObservableObject {
                             cacheHitTokens: max(existing.cacheHitTokens, item.cacheHitTokens),
                             outputTokens: max(existing.outputTokens, item.outputTokens),
                             reasoningTokens: max(existing.reasoningTokens, item.reasoningTokens),
-                            pricing: existing.pricing
+                            pricing: existing.pricing,
+                            resolvedInputPrice: prices.inputMiss,
+                            resolvedCacheHitPrice: prices.cacheHit,
+                            resolvedOutputPrice: prices.output
                         )
                         breakdownMap[key] = existing
                     } else {
@@ -128,6 +137,7 @@ class CostViewModel: ObservableObject {
 
                 let adjustedBreakdown: [ModelCostBreakdown] = breakdown.map { item in
                     let rb = modelRb[item.id] ?? .zero
+                    let prices = item.pricing.price(at: referenceDate)
                     return ModelCostBreakdown(
                         id: item.id,
                         modelId: item.modelId,
@@ -137,7 +147,10 @@ class CostViewModel: ObservableObject {
                         cacheHitTokens: item.cacheHitTokens + rb.tokensCacheRead,
                         outputTokens: item.outputTokens + rb.tokensOutput,
                         reasoningTokens: item.reasoningTokens + rb.tokensReasoning,
-                        pricing: item.pricing
+                        pricing: item.pricing,
+                        resolvedInputPrice: prices.inputMiss,
+                        resolvedCacheHitPrice: prices.cacheHit,
+                        resolvedOutputPrice: prices.output
                     )
                 }
                 let useAdjusted = self.showRollback && rb.total > 0

@@ -240,16 +240,18 @@ final class WidgetDataService {
     }
 
     private func calculateTodayCost(from modelConsumption: [String: TokenData], pricingRules: [String: ModelPricingRule]) -> Double {
-        modelConsumption.reduce(0) { total, item in
+        let now = Date.now
+        return modelConsumption.reduce(0) { total, item in
             let parts = item.key.split(separator: "/")
             let modelId = String(parts[0])
             let variant = parts.count > 1 ? String(parts[1]) : "default"
             let pricing = pricingRules[item.key] ?? .defaults(modelId: modelId, variant: variant)
             guard pricing.isEnabled else { return total }
+            let prices = pricing.price(at: now)
             return total
-                + Double(item.value.tokensInput) / 1_000_000 * pricing.inputMissPricePerMillion
-                + Double(item.value.tokensCacheRead) / 1_000_000 * pricing.cacheHitPricePerMillion
-                + Double(item.value.tokensOutput) / 1_000_000 * pricing.outputPricePerMillion
+                + Double(item.value.tokensInput) / 1_000_000 * prices.inputMiss
+                + Double(item.value.tokensCacheRead) / 1_000_000 * prices.cacheHit
+                + Double(item.value.tokensOutput) / 1_000_000 * prices.output
         }
     }
 
@@ -357,13 +359,15 @@ final class WidgetDataService {
     }
 
     private func calculateTodayCost(_ usage: [TodayModelUsage], pricingRules: [String: ModelPricingRule]) -> Double {
-        usage.reduce(0) { total, item in
+        let now = Date.now
+        return usage.reduce(0) { total, item in
             let pricing = pricingRules[item.pricingKey] ?? .defaults(modelId: item.modelId, variant: item.variant)
             guard pricing.isEnabled else { return total }
+            let prices = pricing.price(at: now)
             return total
-                + Double(item.inputTokens) / 1_000_000 * pricing.inputMissPricePerMillion
-                + Double(item.cacheReadTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
-                + Double(item.outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+                + Double(item.inputTokens) / 1_000_000 * prices.inputMiss
+                + Double(item.cacheReadTokens) / 1_000_000 * prices.cacheHit
+                + Double(item.outputTokens) / 1_000_000 * prices.output
         }
     }
 

@@ -103,7 +103,7 @@ struct SettingsView: View {
                             Image(systemName: "info.circle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text("按模型 ID + variant 分别配置。价格单位：元 / 百万 token。")
+                            Text("按模型 ID + variant 分别配置。价格单位：元 / 百万 token。可设置多个时间段和分时折扣。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer()
@@ -114,17 +114,10 @@ struct SettingsView: View {
                         }
 
                         VStack(spacing: 0) {
-                            GridRowHeader
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 4)
-
-                            Divider()
-
                             ForEach(Array($pricingRules.enumerated()), id: \.element.id) { index, $rule in
-                                PricingRuleRow(rule: $rule, onReset: { resetPricing(for: rule.pricingKey) })
+                                PricingRuleSection(rule: $rule)
                                 if index < pricingRules.count - 1 {
                                     Divider()
-                                        .padding(.leading, 4)
                                 }
                             }
                         }
@@ -248,7 +241,7 @@ struct SettingsView: View {
             savePricingRules()
         }
         .formStyle(.grouped)
-        .frame(width: 760, height: 700)
+        .frame(width: 820, height: 700)
     }
 
     private func settingsHeader(icon: String, title: String, color: Color) -> some View {
@@ -262,74 +255,335 @@ struct SettingsView: View {
         }
     }
 
-    private var GridRowHeader: some View {
-        HStack(spacing: 8) {
-            Text("模型")
-                .font(.caption.bold())
-                .frame(width: 140, alignment: .leading)
-            Text("启用")
-                .font(.caption.bold())
-                .frame(width: 40)
-            Text("输入（无缓存）")
-                .font(.caption.bold())
-                .frame(width: 90)
-            Text("输入（有缓存）")
-                .font(.caption.bold())
-                .frame(width: 90)
-            Text("输出")
-                .font(.caption.bold())
-                .frame(width: 90)
-            Spacer()
-        }
-    }
+    // MARK: - Pricing Rule Section
 
-    private struct PricingRuleRow: View {
+    private struct PricingRuleSection: View {
         @Binding var rule: ModelPricingRule
-        let onReset: () -> Void
+        @State private var isExpanded = false
+        @State private var addWindowPeriodId: String?
+        @State private var newWindowLabel = ""
+        @State private var newWindowStart = 0
+        @State private var newWindowEnd = 8
+        @State private var newWindowMultiplier = 0.5
 
         var body: some View {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(rule.displayName)
-                        .font(.caption.weight(.medium))
-                    if !rule.usesDefaultPricing {
-                        Text("已自定义")
+            VStack(spacing: 0) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.right")
                             .font(.caption2)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .frame(width: 12)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(rule.displayName)
+                                .font(.caption.weight(.medium))
+                            if isExpanded {
+                                Text(currentPriceSummary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Toggle("", isOn: $rule.isEnabled)
+                            .labelsHidden()
+                            .scaleEffect(0.8)
+                        if !rule.usesDefaultPricing {
+                            Text("已自定义")
+                                .font(.caption2)
+                                .foregroundStyle(.blue)
+                        }
                     }
+                    .contentShape(Rectangle())
                 }
-                .frame(width: 140, alignment: .leading)
+                .buttonStyle(.plain)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
 
-                Toggle("", isOn: $rule.isEnabled)
-                    .labelsHidden()
-                    .frame(width: 40)
+                if isExpanded {
+                    Divider()
+                        .padding(.horizontal, 4)
 
-                TextField("", value: $rule.inputMissPricePerMillion, format: .number.precision(.fractionLength(0...4)))
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!rule.isEnabled)
-                    .frame(width: 90)
+                    VStack(spacing: 6) {
+                        ForEach(Array($rule.periods.enumerated()), id: \.element.id) { idx, $period in
+                            PricingPeriodEditor(period: $period, addWindowPeriodId: $addWindowPeriodId, newWindowLabel: $newWindowLabel, newWindowStart: $newWindowStart, newWindowEnd: $newWindowEnd, newWindowMultiplier: $newWindowMultiplier, onDelete: {
+                                rule.periods.remove(at: idx)
+                            })
+                            if idx < rule.periods.count - 1 {
+                                Divider()
+                                    .padding(.leading, 12)
+                            }
+                        }
 
-                TextField("", value: $rule.cacheHitPricePerMillion, format: .number.precision(.fractionLength(0...4)))
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!rule.isEnabled)
-                    .frame(width: 90)
-
-                TextField("", value: $rule.outputPricePerMillion, format: .number.precision(.fractionLength(0...4)))
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!rule.isEnabled)
-                    .frame(width: 90)
-
-                Button("默认", action: onReset)
-                    .buttonStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
+                        Button {
+                            let cal = Calendar.current
+                            let today = cal.startOfDay(for: Date())
+                            rule.periods.append(PricingPeriod(
+                                label: "新时间段",
+                                effectiveFrom: today,
+                                effectiveTo: nil,
+                                inputMissPricePerMillion: ModelPricingRule.defaultInputMissPricePerMillion,
+                                cacheHitPricePerMillion: ModelPricingRule.defaultCacheHitPricePerMillion,
+                                outputPricePerMillion: ModelPricingRule.defaultOutputPricePerMillion,
+                                reasoningPricePerMillion: ModelPricingRule.defaultReasoningPricePerMillion,
+                                timeWindows: nil
+                            ))
+                        } label: {
+                            Label("新增时间段", systemImage: "plus.circle")
+                                .font(.caption)
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 4)
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.leading, 16)
+                    .padding(.trailing, 8)
+                }
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 4)
+        }
+
+        private var currentPriceSummary: String {
+            let now = Date.now
+            let prices = rule.price(at: now)
+            let df = DateFormatter()
+            df.dateFormat = "MM-dd"
+            let active = rule.periods.first { now >= $0.effectiveFrom && ($0.effectiveTo == nil || now < $0.effectiveTo!) }
+            var summary = "输入 ¥\(String(format: "%.2f", prices.inputMiss)) / 缓存 ¥\(String(format: "%.4f", prices.cacheHit)) / 输出 ¥\(String(format: "%.2f", prices.output))"
+            if let active = active, let windows = active.timeWindows, !windows.isEmpty {
+                let hour = Calendar.current.component(.hour, from: now)
+                if let w = windows.first(where: { hour >= $0.startHour && hour < $0.endHour }) {
+                    summary += " · \(w.label)(x\(String(format: "%.2f", w.priceMultiplier)))"
+                }
+            }
+            if let active = active, active.effectiveFrom > Date.distantPast {
+                summary += " · 自 \(df.string(from: active.effectiveFrom))"
+            }
+            return summary
         }
     }
+
+    // MARK: - Pricing Period Editor
+
+    private struct PricingPeriodEditor: View {
+        @Binding var period: PricingPeriod
+        @Binding var addWindowPeriodId: String?
+        @Binding var newWindowLabel: String
+        @Binding var newWindowStart: Int
+        @Binding var newWindowEnd: Int
+        @Binding var newWindowMultiplier: Double
+        let onDelete: () -> Void
+
+        var body: some View {
+            VStack(spacing: 4) {
+                HStack(spacing: 6) {
+                    TextField("标签", text: $period.label)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                        .frame(width: 100)
+
+                    Text("生效")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    DatePicker("", selection: $period.effectiveFrom, displayedComponents: .date)
+                        .labelsHidden()
+                        .scaleEffect(0.85)
+                        .frame(width: 100)
+
+                    if let to = period.effectiveTo {
+                        Text("至")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        DatePicker("", selection: Binding(
+                            get: { to },
+                            set: { period.effectiveTo = $0 }
+                        ), displayedComponents: .date)
+                            .labelsHidden()
+                            .scaleEffect(0.85)
+                            .frame(width: 100)
+                        Button {
+                            period.effectiveTo = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button("设截止日") {
+                            period.effectiveTo = Calendar.current.startOfDay(for: Date())
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                    }
+
+                    Spacer()
+
+                    Button("删除", action: onDelete)
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                HStack(spacing: 6) {
+                    priceField(label: "无缓存输入", value: $period.inputMissPricePerMillion)
+                    priceField(label: "缓存命中", value: $period.cacheHitPricePerMillion)
+                    priceField(label: "输出", value: $period.outputPricePerMillion)
+                    priceField(label: "推理", value: $period.reasoningPricePerMillion)
+                }
+
+                if let windows = period.timeWindows, !windows.isEmpty {
+                    VStack(spacing: 2) {
+                        ForEach(Array(windows.enumerated()), id: \.element.id) { idx, _ in
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                TextField("标签", text: Binding(
+                                    get: { period.timeWindows?[idx].label ?? "" },
+                                    set: { period.timeWindows?[idx].label = $0 }
+                                ))
+                                .textFieldStyle(.roundedBorder)
+                                .font(.caption)
+                                .frame(width: 70)
+
+                                hourStepper(value: Binding(
+                                    get: { period.timeWindows?[idx].startHour ?? 0 },
+                                    set: { period.timeWindows?[idx].startHour = $0 }
+                                ), label: "开始")
+
+                                Text("→")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                hourStepper(value: Binding(
+                                    get: { period.timeWindows?[idx].endHour ?? 24 },
+                                    set: { period.timeWindows?[idx].endHour = $0 }
+                                ), label: "结束")
+
+                                TextField("倍率", value: Binding(
+                                    get: { period.timeWindows?[idx].priceMultiplier ?? 1.0 },
+                                    set: { period.timeWindows?[idx].priceMultiplier = $0 }
+                                ), format: .number.precision(.fractionLength(0...2)))
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.caption)
+                                    .frame(width: 56)
+
+                                Button {
+                                    period.timeWindows?.remove(at: idx)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.leading, 8)
+                    .padding(.vertical, 2)
+                }
+
+                if addWindowPeriodId == period.id {
+                    addWindowForm(periodId: period.id)
+                } else {
+                    Button {
+                        addWindowPeriodId = period.id
+                        newWindowLabel = ""
+                        newWindowStart = 0
+                        newWindowEnd = 8
+                        newWindowMultiplier = 0.5
+                    } label: {
+                        Label("添加分时窗口", systemImage: "plus")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+
+        private func priceField(label: String, value: Binding<Double>) -> some View {
+            HStack(spacing: 2) {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 56, alignment: .trailing)
+                TextField("", value: value, format: .number.precision(.fractionLength(0...4)))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(width: 80)
+            }
+        }
+
+        private func hourStepper(value: Binding<Int>, label: String) -> some View {
+            HStack(spacing: 2) {
+                Button {
+                    if value.wrappedValue > 0 { value.wrappedValue -= 1 }
+                } label: {
+                    Image(systemName: "minus.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                Text("\(String(format: "%02d", value.wrappedValue)):00")
+                    .font(.caption.monospacedDigit())
+                    .frame(width: 36)
+                Button {
+                    if value.wrappedValue < 24 { value.wrappedValue += 1 }
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+
+        private func addWindowForm(periodId: String) -> some View {
+            HStack(spacing: 4) {
+                TextField("标签", text: $newWindowLabel)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(width: 70)
+                hourStepper(value: $newWindowStart, label: "开始")
+                Text("→")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                hourStepper(value: $newWindowEnd, label: "结束")
+                TextField("倍率", value: $newWindowMultiplier, format: .number.precision(.fractionLength(0...2)))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(width: 56)
+                Button("添加") {
+                    let label = newWindowLabel.trimmingCharacters(in: .whitespaces)
+                    period.timeWindows = period.timeWindows ?? []
+                    period.timeWindows?.append(TimeWindow(
+                        label: label.isEmpty ? "窗口" : label,
+                        startHour: newWindowStart,
+                        endHour: newWindowEnd,
+                        priceMultiplier: newWindowMultiplier
+                    ))
+                    addWindowPeriodId = nil
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.blue)
+                Button("取消") {
+                    addWindowPeriodId = nil
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Load / Save / Reset
 
     private func loadPricingRules() {
         isLoadingPricing = true
@@ -371,13 +625,6 @@ struct SettingsView: View {
             rule.isEnabled = $0.isEnabled
             return rule
         }
-    }
-
-    private func resetPricing(for key: String) {
-        guard let index = pricingRules.firstIndex(where: { $0.pricingKey == key }) else { return }
-        let isEnabled = pricingRules[index].isEnabled
-        pricingRules[index] = .defaults(modelId: pricingRules[index].modelId, variant: pricingRules[index].variant)
-        pricingRules[index].isEnabled = isEnabled
     }
 
     private static func mergePricingRules(models: [ModelPricingRule], savedRules: [ModelPricingRule]) -> [ModelPricingRule] {

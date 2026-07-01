@@ -10,25 +10,57 @@ struct ModelCostBreakdown: Identifiable {
     let outputTokens: Int
     let reasoningTokens: Int
     let pricing: ModelPricingRule
+    let resolvedInputPrice: Double
+    let resolvedCacheHitPrice: Double
+    let resolvedOutputPrice: Double
 
     var displayName: String {
         variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
     }
 
     var missCost: Double {
-        Double(cacheMissTokens) / 1_000_000 * pricing.inputMissPricePerMillion
+        Double(cacheMissTokens) / 1_000_000 * resolvedInputPrice
     }
 
     var hitCost: Double {
-        Double(cacheHitTokens) / 1_000_000 * pricing.cacheHitPricePerMillion
+        Double(cacheHitTokens) / 1_000_000 * resolvedCacheHitPrice
     }
 
     var outputCost: Double {
-        Double(outputTokens) / 1_000_000 * pricing.outputPricePerMillion
+        Double(outputTokens) / 1_000_000 * resolvedOutputPrice
     }
 
     var totalCost: Double {
         missCost + hitCost + outputCost
+    }
+}
+
+extension ModelCostBreakdown {
+    init(
+        id: String,
+        modelId: String,
+        variant: String,
+        sessions: Int,
+        cacheMissTokens: Int,
+        cacheHitTokens: Int,
+        outputTokens: Int,
+        reasoningTokens: Int,
+        pricing: ModelPricingRule,
+        referenceDate: Date = .now
+    ) {
+        let prices = pricing.price(at: referenceDate)
+        self.id = id
+        self.modelId = modelId
+        self.variant = variant
+        self.sessions = sessions
+        self.cacheMissTokens = cacheMissTokens
+        self.cacheHitTokens = cacheHitTokens
+        self.outputTokens = outputTokens
+        self.reasoningTokens = reasoningTokens
+        self.pricing = pricing
+        self.resolvedInputPrice = prices.inputMiss
+        self.resolvedCacheHitPrice = prices.cacheHit
+        self.resolvedOutputPrice = prices.output
     }
 }
 
