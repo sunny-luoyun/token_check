@@ -496,7 +496,7 @@ struct LargeWidgetEntryView: View {
                 let colGap: CGFloat = 3
                 let rowGap: CGFloat = 2
                 let cellGap: CGFloat = 1
-                let maxWeeks: CGFloat = 5
+                let maxWeeks: CGFloat = 6
                 let colWidth = (geo.size.width - 5 * colGap) / 6
                 let rowHeight = (geo.size.height - 1 * rowGap) / 2
                 let gridHeight = max(10, rowHeight - 10)
@@ -582,7 +582,7 @@ struct LargeWidgetEntryView: View {
                         ForEach(0..<Int(numWeeks), id: \.self) { col in
                             let dayIndex = col * 7 + row - offset
                             let cellColor: Color = {
-                                guard dayIndex >= 0 && dayIndex < totalMonthDays else { return .heatmapEmpty }
+                                guard dayIndex >= 0 && dayIndex < totalMonthDays else { return .clear }
                                 let day = actualDays[dayIndex]
                                 guard day.date <= today else { return .heatmapEmpty }
                                 return colorForTokens(day.totalTokens, thresholds: thresholds)
