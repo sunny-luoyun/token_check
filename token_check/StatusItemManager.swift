@@ -5,12 +5,10 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let popover: NSPopover
     private let model: TokenViewModel
-    private let dwm: DesktopWidgetManager
     private var contextMenu: NSMenu?
 
-    init(model: TokenViewModel, dwm: DesktopWidgetManager) {
+    init(model: TokenViewModel) {
         self.model = model
-        self.dwm = dwm
 
         popover = NSPopover()
         popover.behavior = .transient
@@ -61,7 +59,6 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
     private func setupPopover() {
         let contentView = MenuBarPopoverContent(
             model: model,
-            dwm: dwm,
             openMainWindow: { [weak self] in self?.reopenMainWindowFromMenuBar() }
         )
         let hostingController = NSHostingController(rootView: contentView)
@@ -101,15 +98,6 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
 
-        let widgetItem = NSMenuItem(
-            title: dwm.isVisible ? "隐藏桌面小组件" : "显示桌面小组件",
-            action: #selector(toggleWidget),
-            keyEquivalent: ""
-        )
-        widgetItem.target = self
-        widgetItem.state = dwm.isVisible ? .on : .off
-        menu.addItem(widgetItem)
-
         let activateItem = NSMenuItem(
             title: "激活窗口",
             action: #selector(activateMainWindow),
@@ -129,10 +117,6 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
         contextMenu = menu
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
-    }
-
-    @objc private func toggleWidget() {
-        dwm.toggle()
     }
 
     @objc private func activateMainWindow() {

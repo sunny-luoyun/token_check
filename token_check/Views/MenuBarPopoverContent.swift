@@ -3,7 +3,6 @@ import SwiftUI
 
 struct MenuBarPopoverContent: View {
     @ObservedObject var model: TokenViewModel
-    @ObservedObject var dwm: DesktopWidgetManager
     let openMainWindow: () -> Void
 
     var body: some View {
@@ -16,21 +15,6 @@ struct MenuBarPopoverContent: View {
             HStack(spacing: 0) {
                 toolbarButton(icon: "macwindow", label: "打开主窗口", action: openMainWindow)
                 Spacer()
-                toolbarButton(
-                    icon: "square.grid.2x2",
-                    label: dwm.isVisible ? "隐藏桌面小组件" : "显示桌面小组件",
-                    action: { dwm.toggle() }
-                )
-                Spacer()
-                if dwm.isVisible {
-                    toolbarButton(
-                        icon: "arrow.up.and.down.and.arrow.left.and.right",
-                        label: dwm.isDragging ? "固定" : "移动",
-                        action: { dwm.toggleDragMode() },
-                        tint: dwm.isDragging ? .blue : nil
-                    )
-                    Spacer()
-                }
                 SettingsLink {
                     Image(systemName: "gearshape")
                         .font(.caption)

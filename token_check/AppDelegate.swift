@@ -160,14 +160,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var mainPanelController: MainPanelController?
 
     let model = TokenViewModel()
-    let dwm = DesktopWidgetManager()
     var statusItemManager: StatusItemManager?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
         NSApp.setActivationPolicy(.regular)
-        dwm.setup(model: model)
-        statusItemManager = StatusItemManager(model: model, dwm: dwm)
+        statusItemManager = StatusItemManager(model: model)
         DispatchQueue.main.async {
             self.mainPanelController?.showMainWindow()
             if showDockIcon == false,
