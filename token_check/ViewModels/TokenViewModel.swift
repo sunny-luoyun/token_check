@@ -167,12 +167,17 @@ class TokenViewModel: ObservableObject {
                 try? encoded.write(to: url, options: .atomic)
                 self.logger.debug("file write yearly_heatmap: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - w0) * 1000), privacy: .public)ms")
             }
+            // 将当前刷新间隔同步给 Widget，使 Widget 自身 timeline 与设置保持一致
+            if let intervalDefaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
+                intervalDefaults.set(Int(Self.readRefreshInterval()), forKey: "widget_timeline_interval")
+            }
             let t3 = CFAbsoluteTimeGetCurrent()
             self.logger.debug("widget data write total: \(String(format: "%.1f", (t3 - t2) * 1000), privacy: .public)ms")
-            // 节流：每 15 分钟 reload 一次 Widget，主线程调用避免 XPC 竞争
+            // 节流：与用户设置的刷新间隔保持一致
             let now = Date()
-            guard now.timeIntervalSince(self.lastWidgetReload) >= 900 else {
-                self.logger.debug("reloadAllTimelines throttled, skip")
+            let throttle = Self.readRefreshInterval()
+            guard now.timeIntervalSince(self.lastWidgetReload) >= throttle else {
+                self.logger.debug("reloadAllTimelines throttled (\(Int(throttle))s), skip")
                 self.logger.debug("Total refresh: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
                 return
             }

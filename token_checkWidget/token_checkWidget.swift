@@ -4,6 +4,20 @@ import OSLog
 
 private let widgetLogger = Logger(subsystem: "com.luoyun.tokencheck", category: "widget-extension")
 
+private enum WidgetDataCache {
+    static var usage: WidgetTodayUsage?
+    static var heatmap: WidgetMonthlyHeatmapData?
+    static var yearly: WidgetYearlyHeatmapData?
+}
+
+private func widgetRefreshInterval() -> Int {
+    guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else {
+        return 300
+    }
+    let value = defaults.integer(forKey: "widget_timeline_interval")
+    return max(60, value == 0 ? 300 : value)
+}
+
 struct TokenWidgetEntry: TimelineEntry {
     let date: Date
     let usage: WidgetTodayUsage?
@@ -11,8 +25,13 @@ struct TokenWidgetEntry: TimelineEntry {
 
 private func readUsageFromAppGroup() -> WidgetTodayUsage? {
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
-          let data = defaults.data(forKey: "today_usage") else { return nil }
-    return try? JSONDecoder().decode(WidgetTodayUsage.self, from: data)
+          let data = defaults.data(forKey: "today_usage"),
+          let usage = try? JSONDecoder().decode(WidgetTodayUsage.self, from: data)
+    else {
+        return WidgetDataCache.usage
+    }
+    WidgetDataCache.usage = usage
+    return usage
 }
 
 struct TokenTimelineProvider: TimelineProvider {
@@ -29,7 +48,7 @@ struct TokenTimelineProvider: TimelineProvider {
         let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
         let entry = TokenWidgetEntry(date: Date(), usage: usage)
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
+        let nextUpdate = Calendar.current.date(byAdding: .second, value: widgetRefreshInterval(), to: Date())!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("TokenCheckWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
@@ -119,6 +138,12 @@ struct TokenCheckWidgetEntryView: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
                 }
+                Text("更新于 \(entry.date, style: .time)")
+                    .font(.system(size: 7))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 2)
             }
             .containerBackground(.regularMaterial, for: .widget)
         } else {
@@ -168,8 +193,13 @@ struct HeatmapWidgetEntry: TimelineEntry {
 
 private func readHeatmapFromAppGroup() -> WidgetMonthlyHeatmapData? {
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
-          let data = defaults.data(forKey: "monthly_heatmap") else { return nil }
-    return try? JSONDecoder().decode(WidgetMonthlyHeatmapData.self, from: data)
+          let data = defaults.data(forKey: "monthly_heatmap"),
+          let heatmap = try? JSONDecoder().decode(WidgetMonthlyHeatmapData.self, from: data)
+    else {
+        return WidgetDataCache.heatmap
+    }
+    WidgetDataCache.heatmap = heatmap
+    return heatmap
 }
 
 struct HeatmapTimelineProvider: TimelineProvider {
@@ -186,7 +216,7 @@ struct HeatmapTimelineProvider: TimelineProvider {
         let t0 = CFAbsoluteTimeGetCurrent()
         let data = readHeatmapFromAppGroup()
         let entry = HeatmapWidgetEntry(date: Date(), data: data)
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
+        let nextUpdate = Calendar.current.date(byAdding: .second, value: widgetRefreshInterval(), to: Date())!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("HeatmapWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
@@ -216,6 +246,12 @@ struct MonthHeatmapEntryView: View {
                 heatmapGrid(data: data)
                 Spacer(minLength: 4)
                 footerView(data: data)
+                Text("更新于 \(entry.date, style: .time)")
+                    .font(.system(size: 6))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 1)
             }
             .containerBackground(.regularMaterial, for: .widget)
         } else {
@@ -344,13 +380,19 @@ private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
         let url = container.appendingPathComponent("yearly_heatmap.json")
         if let data = try? Data(contentsOf: url),
            let result = try? JSONDecoder().decode(WidgetYearlyHeatmapData.self, from: data) {
+            WidgetDataCache.yearly = result
             return result
         }
     }
     // 回退读 UserDefaults（旧数据，直到下一次 refresh 写入文件）
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
-          let data = defaults.data(forKey: "yearly_heatmap") else { return nil }
-    return try? JSONDecoder().decode(WidgetYearlyHeatmapData.self, from: data)
+          let data = defaults.data(forKey: "yearly_heatmap"),
+          let result = try? JSONDecoder().decode(WidgetYearlyHeatmapData.self, from: data)
+    else {
+        return WidgetDataCache.yearly
+    }
+    WidgetDataCache.yearly = result
+    return result
 }
 
 struct LargeWidgetTimelineProvider: TimelineProvider {
@@ -369,7 +411,7 @@ struct LargeWidgetTimelineProvider: TimelineProvider {
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
         let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly)
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
+        let nextUpdate = Calendar.current.date(byAdding: .second, value: widgetRefreshInterval(), to: Date())!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("LargeWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
@@ -405,6 +447,14 @@ struct LargeWidgetEntryView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxHeight: .infinity)
+            }
+            if entry.usage != nil || entry.yearlyData != nil {
+                Text("更新于 \(entry.date, style: .time)")
+                    .font(.system(size: 6))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 6)
+                    .padding(.bottom, 1)
             }
         }
         .containerBackground(.regularMaterial, for: .widget)
