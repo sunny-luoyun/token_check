@@ -20,7 +20,7 @@ class TokenViewModel: ObservableObject {
     private let logger = Logger(subsystem: "com.luoyun.tokencheck", category: "refresh")
     private let service = WidgetDataService()
     private var lastWidgetReload: Date = .distantPast
-    private var refreshTimer: AnyCancellable?
+    private var refreshTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
 
@@ -32,7 +32,7 @@ class TokenViewModel: ObservableObject {
     }
 
     deinit {
-        refreshTimer?.cancel()
+        refreshTimer?.invalidate()
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
@@ -42,13 +42,23 @@ class TokenViewModel: ObservableObject {
     }
 
     private func setupPeriodicRefresh() {
-        refreshTimer?.cancel()
+        refreshTimer?.invalidate()
         let interval = Self.readRefreshInterval()
-        refreshTimer = Timer.publish(every: interval, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                self?.refresh(showLoading: false)
-            }
+        let now = Date()
+
+        let fireDate: Date
+        if interval > 60 {
+            let secs = now.timeIntervalSince1970
+            fireDate = Date(timeIntervalSince1970: (floor(secs / interval) + 1) * interval)
+        } else {
+            fireDate = now.addingTimeInterval(interval)
+        }
+
+        let timer = Timer(fire: fireDate, interval: interval, repeats: true) { [weak self] _ in
+            self?.refresh(showLoading: false)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
     }
 
     private func setupWakeNotification() {
