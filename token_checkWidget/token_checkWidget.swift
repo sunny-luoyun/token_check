@@ -1,6 +1,7 @@
 import WidgetKit
 import SwiftUI
 import OSLog
+import AppIntents
 
 private let widgetLogger = Logger(subsystem: "com.luoyun.tokencheck", category: "widget-extension")
 
@@ -30,6 +31,28 @@ private func nextAlignedRefreshDate() -> Date {
     let seconds = now.timeIntervalSince1970
     let aligned = (floor(seconds / Double(interval)) + 1) * Double(interval)
     return Date(timeIntervalSince1970: aligned)
+}
+
+// MARK: - 小组件编辑意图
+
+enum BarChartMode: String, AppEnum {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "显示模式"
+
+    case tokens
+    case cost
+
+    static var caseDisplayRepresentations: [BarChartMode: DisplayRepresentation] = [
+        .tokens: "Token 消耗",
+        .cost: "金额消耗"
+    ]
+}
+
+struct BarChartDisplayIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "柱状图显示"
+    static var description: LocalizedStringResource = "切换柱状图的显示内容"
+
+    @Parameter(title: "显示模式", default: .tokens)
+    var mode: BarChartMode
 }
 
 struct TokenWidgetEntry: TimelineEntry {
@@ -386,6 +409,7 @@ struct LargeWidgetEntry: TimelineEntry {
     let date: Date
     let usage: WidgetTodayUsage?
     let yearlyData: WidgetYearlyHeatmapData?
+    let displayMode: BarChartMode
 }
 
 private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
@@ -409,26 +433,26 @@ private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
     return result
 }
 
-struct LargeWidgetTimelineProvider: TimelineProvider {
+struct LargeWidgetTimelineProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> LargeWidgetEntry {
-        LargeWidgetEntry(date: Date(), usage: nil, yearlyData: nil)
+        LargeWidgetEntry(date: Date(), usage: nil, yearlyData: nil, displayMode: .tokens)
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (LargeWidgetEntry) -> Void) {
+    func snapshot(for configuration: BarChartDisplayIntent, in context: Context) async -> LargeWidgetEntry {
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
-        completion(LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly))
+        return LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<LargeWidgetEntry>) -> Void) {
+    func timeline(for configuration: BarChartDisplayIntent, in context: Context) async -> Timeline<LargeWidgetEntry> {
         let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
-        let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly)
+        let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode)
         let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("LargeWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
-        completion(timeline)
+        return timeline
     }
 }
 
@@ -437,6 +461,10 @@ struct LargeWidgetEntryView: View {
 
     private var total7Day: Int {
         entry.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
+    }
+
+    private var total7DayCost: Double {
+        entry.usage?.dailyTokens.map(\.dailyCost).reduce(0, +) ?? 0
     }
 
     var body: some View {
@@ -514,26 +542,49 @@ struct LargeWidgetEntryView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text("共 \(formatTokens(total7Day))")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 6)
-
-                let maxVal = max(usage.dailyTokens.map(\.totalTokens).max() ?? 1, 1)
-                GeometryReader { geo in
-                    HStack(spacing: 2) {
-                        ForEach(Array(usage.dailyTokens.enumerated()), id: \.element.id) { _, item in
-                            let ratio = CGFloat(item.totalTokens) / CGFloat(maxVal)
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(.blue.gradient)
-                                .frame(height: max(4, ratio * geo.size.height))
-                                .frame(maxHeight: .infinity, alignment: .bottom)
-                        }
+                    if entry.displayMode == .cost {
+                        Text("共 \(formatCost(total7DayCost))")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.orange)
+                    } else {
+                        Text("共 \(formatTokens(total7Day))")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
                     }
                 }
                 .padding(.horizontal, 6)
-                .padding(.bottom, 3)
+
+                if entry.displayMode == .cost {
+                    let maxVal = CGFloat(max(usage.dailyTokens.map(\.dailyCost).max() ?? 0.01, 0.01))
+                    GeometryReader { geo in
+                        HStack(spacing: 2) {
+                            ForEach(Array(usage.dailyTokens.enumerated()), id: \.element.id) { _, item in
+                                let ratio = CGFloat(item.dailyCost) / maxVal
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(.orange.gradient)
+                                    .frame(height: max(4, ratio * geo.size.height))
+                                    .frame(maxHeight: .infinity, alignment: .bottom)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 3)
+                } else {
+                    let maxVal = max(usage.dailyTokens.map(\.totalTokens).max() ?? 1, 1)
+                    GeometryReader { geo in
+                        HStack(spacing: 2) {
+                            ForEach(Array(usage.dailyTokens.enumerated()), id: \.element.id) { _, item in
+                                let ratio = CGFloat(item.totalTokens) / CGFloat(maxVal)
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(.blue.gradient)
+                                    .frame(height: max(4, ratio * geo.size.height))
+                                    .frame(maxHeight: .infinity, alignment: .bottom)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 3)
+                }
             }
         }
     }
@@ -700,7 +751,7 @@ struct TokenCheckLargeWidget: Widget {
     let kind: String = "TokenCheckLargeWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: LargeWidgetTimelineProvider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: BarChartDisplayIntent.self, provider: LargeWidgetTimelineProvider()) { entry in
             LargeWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Token 年度热力图")

@@ -6,6 +6,26 @@ struct DayTokenData: Identifiable, Codable {
     let id: String
     let date: Date
     let totalTokens: Int
+    let dailyCost: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id, date, totalTokens, dailyCost
+    }
+
+    init(id: String, date: Date, totalTokens: Int, dailyCost: Double = 0) {
+        self.id = id
+        self.date = date
+        self.totalTokens = totalTokens
+        self.dailyCost = dailyCost
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        date = try container.decode(Date.self, forKey: .date)
+        totalTokens = try container.decode(Int.self, forKey: .totalTokens)
+        dailyCost = try container.decodeIfPresent(Double.self, forKey: .dailyCost) ?? 0
+    }
 }
 
 struct TodayUsage: Codable {
@@ -98,6 +118,13 @@ final class WidgetDataService {
         }
 
         let dailyTokens = fillMissingDays(fetchDailyTokens(db, sevenDaysAgo) ?? [], since: sevenDaysAgo)
+        let dailyCosts = fetchDailyCosts(db, cutoff: sevenDaysAgo, pricingRules: pricingRules)
+        let costDf = DateFormatter()
+        costDf.dateFormat = "yyyy-MM-dd"
+        let dailyTokensWithCost = dailyTokens.map { day in
+            let key = costDf.string(from: day.date)
+            return DayTokenData(id: day.id, date: day.date, totalTokens: day.totalTokens, dailyCost: dailyCosts[key] ?? 0)
+        }
 
         return TodayUsage(
             totalTokens: input + output + cacheRead,
@@ -105,7 +132,7 @@ final class WidgetDataService {
             outputTokens: output,
             cacheReadTokens: cacheRead,
             sessionCount: sessionCount,
-            dailyTokens: dailyTokens,
+            dailyTokens: dailyTokensWithCost,
             todayCost: todayCost
         )
     }
@@ -369,6 +396,55 @@ final class WidgetDataService {
                 + Double(item.cacheReadTokens) / 1_000_000 * prices.cacheHit
                 + Double(item.outputTokens) / 1_000_000 * prices.output
         }
+    }
+
+    private func fetchDailyCosts(_ db: OpaquePointer, cutoff: Int64, pricingRules: [String: ModelPricingRule]) -> [String: Double] {
+        let sql = """
+            SELECT date(datetime(s.time_created / 1000, 'unixepoch', 'localtime')) AS day,
+                   json_extract(s.model, '$.id') AS model_id,
+                   CASE WHEN json_extract(s.model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(s.model, '$.variant'), 'default') END AS variant,
+                   COALESCE(SUM(s.tokens_input), 0),
+                   COALESCE(SUM(s.tokens_output), 0),
+                   COALESCE(SUM(s.tokens_cache_read), 0)
+            FROM session s
+            WHERE s.time_created > ?
+            GROUP BY day, model_id, variant
+            ORDER BY day
+        """
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return [:] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, cutoff)
+
+        var dayModelUsage: [String: [TodayModelUsage]] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let dayStr = text(stmt, 0) else { continue }
+            let usage = TodayModelUsage(
+                modelId: text(stmt, 1) ?? "unknown",
+                variant: text(stmt, 2) ?? "default",
+                inputTokens: int(stmt, 3),
+                outputTokens: int(stmt, 4),
+                cacheReadTokens: int(stmt, 5)
+            )
+            dayModelUsage[dayStr, default: []].append(usage)
+        }
+
+        let now = Date.now
+        var result: [String: Double] = [:]
+        for (day, usages) in dayModelUsage {
+            var dayCost = 0.0
+            for item in usages {
+                let pricing = pricingRules[item.pricingKey] ?? .defaults(modelId: item.modelId, variant: item.variant)
+                guard pricing.isEnabled else { continue }
+                let prices = pricing.price(at: now)
+                dayCost += Double(item.inputTokens) / 1_000_000 * prices.inputMiss
+                dayCost += Double(item.cacheReadTokens) / 1_000_000 * prices.cacheHit
+                dayCost += Double(item.outputTokens) / 1_000_000 * prices.output
+            }
+            result[day] = dayCost
+        }
+        return result
     }
 
     private func openDB() -> OpaquePointer? {
