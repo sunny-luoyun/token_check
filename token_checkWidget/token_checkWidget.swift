@@ -18,6 +18,20 @@ private func widgetRefreshInterval() -> Int {
     return max(60, value == 0 ? 300 : value)
 }
 
+private func nextAlignedRefreshDate() -> Date {
+    let interval = widgetRefreshInterval()
+    let now = Date()
+
+    // 1分钟间隔不对齐，直接加间隔
+    guard interval > 60 else {
+        return Calendar.current.date(byAdding: .second, value: interval, to: now)!
+    }
+
+    let seconds = now.timeIntervalSince1970
+    let aligned = (floor(seconds / Double(interval)) + 1) * Double(interval)
+    return Date(timeIntervalSince1970: aligned)
+}
+
 struct TokenWidgetEntry: TimelineEntry {
     let date: Date
     let usage: WidgetTodayUsage?
@@ -48,7 +62,7 @@ struct TokenTimelineProvider: TimelineProvider {
         let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
         let entry = TokenWidgetEntry(date: Date(), usage: usage)
-        let nextUpdate = Calendar.current.date(byAdding: .second, value: widgetRefreshInterval(), to: Date())!
+        let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("TokenCheckWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
@@ -216,7 +230,7 @@ struct HeatmapTimelineProvider: TimelineProvider {
         let t0 = CFAbsoluteTimeGetCurrent()
         let data = readHeatmapFromAppGroup()
         let entry = HeatmapWidgetEntry(date: Date(), data: data)
-        let nextUpdate = Calendar.current.date(byAdding: .second, value: widgetRefreshInterval(), to: Date())!
+        let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("HeatmapWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
@@ -411,7 +425,7 @@ struct LargeWidgetTimelineProvider: TimelineProvider {
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
         let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly)
-        let nextUpdate = Calendar.current.date(byAdding: .second, value: widgetRefreshInterval(), to: Date())!
+        let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("LargeWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
@@ -450,8 +464,8 @@ struct LargeWidgetEntryView: View {
             }
             if entry.usage != nil || entry.yearlyData != nil {
                 Text("更新于 \(entry.date, style: .time)")
-                    .font(.system(size: 6))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 7))
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.trailing, 6)
                     .padding(.bottom, 1)
@@ -581,8 +595,8 @@ struct LargeWidgetEntryView: View {
             HStack {
                 HStack(spacing: 3) {
                     Text("少")
-                        .font(.system(size: 6))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(Color.heatmap1)
                         .frame(width: 8, height: 8)
@@ -596,13 +610,13 @@ struct LargeWidgetEntryView: View {
                         .fill(Color.heatmap4)
                         .frame(width: 8, height: 8)
                     Text("多")
-                        .font(.system(size: 6))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text("日均 \(formatTokens(data.avgDailyTokens))")
-                    .font(.system(size: 7).monospaced())
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 8).monospaced())
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 6)
             .padding(.bottom, 4)
