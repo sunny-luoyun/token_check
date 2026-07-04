@@ -171,25 +171,26 @@ struct SettingsView: View {
                         .labelsHidden()
                     }
                 }
-                HStack(spacing: 12) {
-                    Image(systemName: "rectangle.stack.fill")
-                        .font(.title2)
-                        .foregroundStyle(.orange)
-                        .frame(width: 28)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("菜单栏第四项统计")
-                            .font(.subheadline.weight(.medium))
-                        Picker("", selection: .init(get: {
-                            UserDefaults.standard.string(forKey: "widgetStatOption") ?? "sessionCount"
-                        }, set: {
-                            UserDefaults.standard.set($0, forKey: "widgetStatOption")
-                        })) {
-                            Text("会话数").tag("sessionCount")
-                            Text("消息数").tag("messageCount")
-                        }
-                        .labelsHidden()
-                    }
-                }
+                MenuBarStatPicker(
+                    label: "第一项统计",
+                    key: "widgetStat1",
+                    defaultVal: "inputTokens"
+                )
+                MenuBarStatPicker(
+                    label: "第二项统计",
+                    key: "widgetStat2",
+                    defaultVal: "cacheReadTokens"
+                )
+                MenuBarStatPicker(
+                    label: "第三项统计",
+                    key: "widgetStat3",
+                    defaultVal: "outputTokens"
+                )
+                MenuBarStatPicker(
+                    label: "第四项统计",
+                    key: "widgetStat4",
+                    defaultVal: "sessionCount"
+                )
             } header: {
                 settingsHeader(icon: "square.grid.2x2.fill", title: "桌面小组件", color: .green)
             }
@@ -699,6 +700,54 @@ struct SettingsView: View {
                     self.isCleaning = false
                     self.diskError = error.localizedDescription
                 }
+            }
+        }
+    }
+}
+
+// MARK: - 菜单栏统计项选择器
+
+private struct MenuBarStatPicker: View {
+    let label: String
+    let key: String
+    let defaultVal: String
+
+    private static let allStats: [(tag: String, display: String)] = [
+        ("inputTokens", "输入 Token"),
+        ("outputTokens", "输出 Token"),
+        ("reasoningTokens", "推理 Token"),
+        ("cacheReadTokens", "缓存读取"),
+        ("cacheWriteTokens", "缓存写入"),
+        ("totalTokens", "总 Token"),
+        ("todayCost", "今日费用"),
+        ("sessionCount", "会话数"),
+        ("messageCount", "消息数"),
+        ("projectCount", "项目数"),
+        ("additions", "新增行数"),
+        ("deletions", "删除行数"),
+        ("files", "变更文件"),
+        ("netAdditions", "净增行数"),
+    ]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "rectangle.stack.fill")
+                .font(.title2)
+                .foregroundStyle(.orange)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("菜单栏\(label)")
+                    .font(.subheadline.weight(.medium))
+                Picker("", selection: .init(get: {
+                    UserDefaults.standard.string(forKey: key) ?? defaultVal
+                }, set: {
+                    UserDefaults.standard.set($0, forKey: key)
+                })) {
+                    ForEach(Self.allStats, id: \.tag) { stat in
+                        Text(stat.display).tag(stat.tag)
+                    }
+                }
+                .labelsHidden()
             }
         }
     }

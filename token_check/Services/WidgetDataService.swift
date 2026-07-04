@@ -33,8 +33,14 @@ struct TodayUsage: Codable {
     let inputTokens: Int
     let outputTokens: Int
     let cacheReadTokens: Int
+    let reasoningTokens: Int
+    let cacheWriteTokens: Int
     let sessionCount: Int
     let messageCount: Int
+    let projectCount: Int
+    let additions: Int
+    let deletions: Int
+    let files: Int
     let dailyTokens: [DayTokenData]
     let todayCost: Double
 }
@@ -93,23 +99,30 @@ final class WidgetDataService {
         let input: Int
         let output: Int
         let cacheRead: Int
+        let reasoning: Int
+        let cacheWrite: Int
         let sessionCount: Int
 
         if let events = todayFromEvents {
             input = events.tokensInput
             output = events.tokensOutput
             cacheRead = events.tokensCacheRead
+            reasoning = events.tokensReasoning
+            cacheWrite = events.tokensCacheWrite
             sessionCount = sessionRow?.sessions ?? 0
         } else if let row = sessionRow {
             input = row.input
             output = row.output
             cacheRead = row.cacheRead
+            reasoning = row.reasoning
+            cacheWrite = row.cacheWrite
             sessionCount = row.sessions
         } else {
             return nil
         }
 
         let messageCount = fetchTodayMessageCount(db, todayStart)
+        let projectCount = fetchTodayProjectCount(db, todayStart)
 
         let pricingRules = ModelPricingStore.lookup(from: ModelPricingStore.load())
         let todayCost: Double
@@ -130,12 +143,18 @@ final class WidgetDataService {
         }
 
         return TodayUsage(
-            totalTokens: input + output + cacheRead,
+            totalTokens: input + output + reasoning + cacheRead + cacheWrite,
             inputTokens: input,
             outputTokens: output,
             cacheReadTokens: cacheRead,
+            reasoningTokens: reasoning,
+            cacheWriteTokens: cacheWrite,
             sessionCount: sessionCount,
             messageCount: messageCount,
+            projectCount: projectCount,
+            additions: sessionRow?.additions ?? 0,
+            deletions: sessionRow?.deletions ?? 0,
+            files: sessionRow?.files ?? 0,
             dailyTokens: dailyTokensWithCost,
             todayCost: todayCost
         )
@@ -309,11 +328,16 @@ final class WidgetDataService {
         return result
     }
 
-    private func fetchTodayRow(_ db: OpaquePointer, _ cutoff: Int64) -> (input: Int, output: Int, cacheRead: Int, sessions: Int)? {
+    private func fetchTodayRow(_ db: OpaquePointer, _ cutoff: Int64) -> (input: Int, output: Int, cacheRead: Int, reasoning: Int, cacheWrite: Int, additions: Int, deletions: Int, files: Int, sessions: Int)? {
         let sql = """
             SELECT COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_output), 0),
                    COALESCE(SUM(tokens_cache_read), 0),
+                   COALESCE(SUM(tokens_reasoning), 0),
+                   COALESCE(SUM(tokens_cache_write), 0),
+                   COALESCE(SUM(summary_additions), 0),
+                   COALESCE(SUM(summary_deletions), 0),
+                   COALESCE(SUM(summary_files), 0),
                    COUNT(*)
             FROM session
             WHERE time_created > ?
@@ -325,11 +349,22 @@ final class WidgetDataService {
         sqlite3_bind_int64(stmt, 1, cutoff)
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return (int(stmt, 0), int(stmt, 1), int(stmt, 2), int(stmt, 3))
+        return (int(stmt, 0), int(stmt, 1), int(stmt, 2), int(stmt, 3), int(stmt, 4), int(stmt, 5), int(stmt, 6), int(stmt, 7), int(stmt, 8))
     }
 
     private func fetchTodayMessageCount(_ db: OpaquePointer, _ cutoff: Int64) -> Int {
         let sql = "SELECT COUNT(*) FROM message WHERE time_created > ?"
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, cutoff)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    private func fetchTodayProjectCount(_ db: OpaquePointer, _ cutoff: Int64) -> Int {
+        let sql = "SELECT COUNT(DISTINCT project_id) FROM session WHERE time_created > ?"
         var stmt_: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
               let stmt = stmt_ else { return 0 }

@@ -13,6 +13,8 @@ class TokenViewModel: ObservableObject {
     @Published var adjustedInput: Int = 0
     @Published var adjustedOutput: Int = 0
     @Published var adjustedCacheRead: Int = 0
+    @Published var adjustedReasoning: Int = 0
+    @Published var adjustedCacheWrite: Int = 0
     @Published var adjustedTotal: Int = 0
     @Published var deepseekBalance: String?
     @Published var deepseekLoading = false
@@ -120,6 +122,8 @@ class TokenViewModel: ObservableObject {
             let adjInput = result.map { $0.inputTokens + todayRb.rolledBackInput } ?? 0
             let adjOutput = result.map { $0.outputTokens + todayRb.rolledBackOutput } ?? 0
             let adjCacheRead = result.map { $0.cacheReadTokens + todayRb.rolledBackCacheRead } ?? 0
+            let adjReasoning = result.map { $0.reasoningTokens + todayRb.rolledBackReasoning } ?? 0
+            let adjCacheWrite = result.map { $0.cacheWriteTokens + todayRb.rolledBackCacheWrite } ?? 0
             let adjTotal = result.map { $0.totalTokens + todayRb.total } ?? 0
 
             // 主线程只更新 UI，不涉及任何跨进程调用
@@ -129,6 +133,8 @@ class TokenViewModel: ObservableObject {
                 self.adjustedInput = adjInput
                 self.adjustedOutput = adjOutput
                 self.adjustedCacheRead = adjCacheRead
+                self.adjustedReasoning = adjReasoning
+                self.adjustedCacheWrite = adjCacheWrite
                 self.adjustedTotal = adjTotal
                 if let result {
                     self.usage = result
@@ -152,8 +158,14 @@ class TokenViewModel: ObservableObject {
                 inputTokens: adjInput,
                 outputTokens: adjOutput,
                 cacheReadTokens: adjCacheRead,
+                reasoningTokens: adjReasoning,
+                cacheWriteTokens: adjCacheWrite,
                 sessionCount: result.sessionCount,
                 messageCount: result.messageCount,
+                projectCount: result.projectCount,
+                additions: result.additions,
+                deletions: result.deletions,
+                files: result.files,
                 dailyTokens: result.dailyTokens,
                 todayCost: result.todayCost
             )

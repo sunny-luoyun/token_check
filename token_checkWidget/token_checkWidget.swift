@@ -48,14 +48,38 @@ enum BarChartMode: String, AppEnum {
 }
 
 enum WidgetStatOption: String, AppEnum {
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "第四项统计"
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "统计指标"
 
+    case inputTokens
+    case outputTokens
+    case reasoningTokens
+    case cacheReadTokens
+    case cacheWriteTokens
+    case totalTokens
+    case todayCost
     case sessionCount
     case messageCount
+    case projectCount
+    case additions
+    case deletions
+    case files
+    case netAdditions
 
     static var caseDisplayRepresentations: [WidgetStatOption: DisplayRepresentation] = [
+        .inputTokens: "输入 Token",
+        .outputTokens: "输出 Token",
+        .reasoningTokens: "推理 Token",
+        .cacheReadTokens: "缓存读取",
+        .cacheWriteTokens: "缓存写入",
+        .totalTokens: "总 Token",
+        .todayCost: "今日费用",
         .sessionCount: "会话数",
-        .messageCount: "消息数"
+        .messageCount: "消息数",
+        .projectCount: "项目数",
+        .additions: "新增行数",
+        .deletions: "删除行数",
+        .files: "变更文件",
+        .netAdditions: "净增行数"
     ]
 }
 
@@ -66,14 +90,23 @@ struct BarChartDisplayIntent: WidgetConfigurationIntent {
     @Parameter(title: "显示模式", default: .tokens)
     var mode: BarChartMode
 
+    @Parameter(title: "第一项统计", default: .inputTokens)
+    var stat1: WidgetStatOption
+    @Parameter(title: "第二项统计", default: .cacheReadTokens)
+    var stat2: WidgetStatOption
+    @Parameter(title: "第三项统计", default: .outputTokens)
+    var stat3: WidgetStatOption
     @Parameter(title: "第四项统计", default: .sessionCount)
-    var statOption: WidgetStatOption
+    var stat4: WidgetStatOption
 }
 
 struct TokenWidgetEntry: TimelineEntry {
     let date: Date
     let usage: WidgetTodayUsage?
-    let statOption: WidgetStatOption
+    let stat1: WidgetStatOption
+    let stat2: WidgetStatOption
+    let stat3: WidgetStatOption
+    let stat4: WidgetStatOption
 }
 
 private func readUsageFromAppGroup() -> WidgetTodayUsage? {
@@ -89,18 +122,18 @@ private func readUsageFromAppGroup() -> WidgetTodayUsage? {
 
 struct TokenTimelineProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> TokenWidgetEntry {
-        TokenWidgetEntry(date: Date(), usage: nil, statOption: .sessionCount)
+        TokenWidgetEntry(date: Date(), usage: nil, stat1: .inputTokens, stat2: .cacheReadTokens, stat3: .outputTokens, stat4: .sessionCount)
     }
 
     func snapshot(for configuration: BarChartDisplayIntent, in context: Context) async -> TokenWidgetEntry {
         let usage = readUsageFromAppGroup()
-        return TokenWidgetEntry(date: Date(), usage: usage, statOption: configuration.statOption)
+        return TokenWidgetEntry(date: Date(), usage: usage, stat1: configuration.stat1, stat2: configuration.stat2, stat3: configuration.stat3, stat4: configuration.stat4)
     }
 
     func timeline(for configuration: BarChartDisplayIntent, in context: Context) async -> Timeline<TokenWidgetEntry> {
         let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
-        let entry = TokenWidgetEntry(date: Date(), usage: usage, statOption: configuration.statOption)
+        let entry = TokenWidgetEntry(date: Date(), usage: usage, stat1: configuration.stat1, stat2: configuration.stat2, stat3: configuration.stat3, stat4: configuration.stat4)
         let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("TokenCheckWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
@@ -120,6 +153,64 @@ private func formatTokens(_ n: Int) -> String {
 
 private func formatCost(_ c: Double) -> String {
     String(format: "¥%.2f", c)
+}
+
+private func statValue(for option: WidgetStatOption, usage: WidgetTodayUsage?) -> String {
+    guard let usage else { return "—" }
+    switch option {
+    case .inputTokens:    return formatTokens(usage.inputTokens)
+    case .outputTokens:   return formatTokens(usage.outputTokens)
+    case .reasoningTokens: return formatTokens(usage.reasoningTokens)
+    case .cacheReadTokens: return formatTokens(usage.cacheReadTokens)
+    case .cacheWriteTokens: return formatTokens(usage.cacheWriteTokens)
+    case .totalTokens:    return formatTokens(usage.totalTokens)
+    case .todayCost:      return formatCost(usage.todayCost)
+    case .sessionCount:   return "\(usage.sessionCount)"
+    case .messageCount:   return "\(usage.messageCount)"
+    case .projectCount:   return "\(usage.projectCount)"
+    case .additions:      return formatTokens(usage.additions)
+    case .deletions:      return formatTokens(usage.deletions)
+    case .files:          return "\(usage.files)"
+    case .netAdditions:   return formatTokens(usage.additions - usage.deletions)
+    }
+}
+
+private func statLabel(for option: WidgetStatOption) -> String {
+    switch option {
+    case .inputTokens:    return "输入"
+    case .outputTokens:   return "输出"
+    case .reasoningTokens: return "推理"
+    case .cacheReadTokens: return "缓存"
+    case .cacheWriteTokens: return "缓存写入"
+    case .totalTokens:    return "总计"
+    case .todayCost:      return "费用"
+    case .sessionCount:   return "会话"
+    case .messageCount:   return "消息"
+    case .projectCount:   return "项目"
+    case .additions:      return "新增"
+    case .deletions:      return "删除"
+    case .files:          return "文件"
+    case .netAdditions:   return "净增"
+    }
+}
+
+private func statColor(for option: WidgetStatOption) -> Color {
+    switch option {
+    case .inputTokens:    return .blue
+    case .outputTokens:   return .green
+    case .reasoningTokens: return .purple
+    case .cacheReadTokens: return .teal
+    case .cacheWriteTokens: return .cyan
+    case .totalTokens:    return .indigo
+    case .todayCost:      return .red
+    case .sessionCount:   return .orange
+    case .messageCount:   return .yellow
+    case .projectCount:   return .purple
+    case .additions:      return .green
+    case .deletions:      return .red
+    case .files:          return .blue
+    case .netAdditions:   return .teal
+    }
 }
 
 struct TokenCheckWidgetEntryView: View {
@@ -149,17 +240,13 @@ struct TokenCheckWidgetEntryView: View {
                 .padding(.top, 6)
 
                 HStack(spacing: 0) {
-                    statItem("输入", formatTokens(usage.inputTokens), .blue)
+                    statItem(statLabel(for: entry.stat1), statValue(for: entry.stat1, usage: usage), statColor(for: entry.stat1))
                     Spacer()
-                    statItem("缓存", formatTokens(usage.cacheReadTokens), .purple)
+                    statItem(statLabel(for: entry.stat2), statValue(for: entry.stat2, usage: usage), statColor(for: entry.stat2))
                     Spacer()
-                    statItem("输出", formatTokens(usage.outputTokens), .green)
+                    statItem(statLabel(for: entry.stat3), statValue(for: entry.stat3, usage: usage), statColor(for: entry.stat3))
                     Spacer()
-                    if entry.statOption == .messageCount {
-                        statItem("消息", "\(usage.messageCount)", .orange)
-                    } else {
-                        statItem("会话", "\(usage.sessionCount)", .orange)
-                    }
+                    statItem(statLabel(for: entry.stat4), statValue(for: entry.stat4, usage: usage), statColor(for: entry.stat4))
                 }
                 .font(.caption2)
                 .padding(.horizontal, 14)
@@ -430,7 +517,10 @@ struct LargeWidgetEntry: TimelineEntry {
     let usage: WidgetTodayUsage?
     let yearlyData: WidgetYearlyHeatmapData?
     let displayMode: BarChartMode
-    let statOption: WidgetStatOption
+    let stat1: WidgetStatOption
+    let stat2: WidgetStatOption
+    let stat3: WidgetStatOption
+    let stat4: WidgetStatOption
 }
 
 private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
@@ -456,20 +546,20 @@ private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
 
 struct LargeWidgetTimelineProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> LargeWidgetEntry {
-        LargeWidgetEntry(date: Date(), usage: nil, yearlyData: nil, displayMode: .tokens, statOption: .sessionCount)
+        LargeWidgetEntry(date: Date(), usage: nil, yearlyData: nil, displayMode: .tokens, stat1: .inputTokens, stat2: .cacheReadTokens, stat3: .outputTokens, stat4: .sessionCount)
     }
 
     func snapshot(for configuration: BarChartDisplayIntent, in context: Context) async -> LargeWidgetEntry {
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
-        return LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode, statOption: configuration.statOption)
+        return LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode, stat1: configuration.stat1, stat2: configuration.stat2, stat3: configuration.stat3, stat4: configuration.stat4)
     }
 
     func timeline(for configuration: BarChartDisplayIntent, in context: Context) async -> Timeline<LargeWidgetEntry> {
         let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
-        let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode, statOption: configuration.statOption)
+        let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode, stat1: configuration.stat1, stat2: configuration.stat2, stat3: configuration.stat3, stat4: configuration.stat4)
         let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("LargeWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
@@ -542,17 +632,13 @@ struct LargeWidgetEntryView: View {
             .padding(.top, 4)
 
             HStack(spacing: 0) {
-                statItem("输入", formatTokens(usage.inputTokens), .blue)
+                statItem(statLabel(for: entry.stat1), statValue(for: entry.stat1, usage: usage), statColor(for: entry.stat1))
                 Spacer()
-                statItem("缓存", formatTokens(usage.cacheReadTokens), .purple)
+                statItem(statLabel(for: entry.stat2), statValue(for: entry.stat2, usage: usage), statColor(for: entry.stat2))
                 Spacer()
-                statItem("输出", formatTokens(usage.outputTokens), .green)
+                statItem(statLabel(for: entry.stat3), statValue(for: entry.stat3, usage: usage), statColor(for: entry.stat3))
                 Spacer()
-                if entry.statOption == .messageCount {
-                    statItem("消息", "\(usage.messageCount)", .orange)
-                } else {
-                    statItem("会话", "\(usage.sessionCount)", .orange)
-                }
+                statItem(statLabel(for: entry.stat4), statValue(for: entry.stat4, usage: usage), statColor(for: entry.stat4))
             }
             .font(.caption2)
             .padding(.horizontal, 6)

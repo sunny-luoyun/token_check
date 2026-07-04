@@ -8,7 +8,10 @@ struct MenuBarWidgetView: View {
         model.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
     }
 
-    @AppStorage("widgetStatOption") private var statOption = "sessionCount"
+    @AppStorage("widgetStat1") private var stat1 = "inputTokens"
+    @AppStorage("widgetStat2") private var stat2 = "cacheReadTokens"
+    @AppStorage("widgetStat3") private var stat3 = "outputTokens"
+    @AppStorage("widgetStat4") private var stat4 = "sessionCount"
     @State private var chartAnimated = false
 
     var body: some View {
@@ -78,17 +81,13 @@ struct MenuBarWidgetView: View {
             }
 
             HStack(spacing: 0) {
-                statItem("输入", formatTokens(model.adjustedInput), .blue)
+                statItem(statLabel(stat1), statValue(stat1, model: model, usage: usage), statColor(stat1))
                 Spacer()
-                statItem("缓存", formatTokens(model.adjustedCacheRead), .purple)
+                statItem(statLabel(stat2), statValue(stat2, model: model, usage: usage), statColor(stat2))
                 Spacer()
-                statItem("输出", formatTokens(model.adjustedOutput), .green)
+                statItem(statLabel(stat3), statValue(stat3, model: model, usage: usage), statColor(stat3))
                 Spacer()
-                if statOption == "messageCount" {
-                    statItem("消息", "\(usage.messageCount)", .orange)
-                } else {
-                    statItem("会话", "\(usage.sessionCount)", .orange)
-                }
+                statItem(statLabel(stat4), statValue(stat4, model: model, usage: usage), statColor(stat4))
             }
             .font(.caption)
         }
@@ -152,6 +151,66 @@ struct MenuBarWidgetView: View {
             String(format: "%.0fK", Double(n) / 1_000)
         } else {
             "\(n)"
+        }
+    }
+
+    private func statValue(_ key: String, model: TokenViewModel, usage: TodayUsage) -> String {
+        switch key {
+        case "inputTokens":    return formatTokens(model.adjustedInput)
+        case "outputTokens":   return formatTokens(model.adjustedOutput)
+        case "reasoningTokens": return formatTokens(model.adjustedReasoning)
+        case "cacheReadTokens": return formatTokens(model.adjustedCacheRead)
+        case "cacheWriteTokens": return formatTokens(model.adjustedCacheWrite)
+        case "totalTokens":    return formatTokens(model.adjustedTotal)
+        case "todayCost":      return formatCost(usage.todayCost)
+        case "sessionCount":   return "\(usage.sessionCount)"
+        case "messageCount":   return "\(usage.messageCount)"
+        case "projectCount":   return "\(usage.projectCount)"
+        case "additions":      return formatTokens(usage.additions)
+        case "deletions":      return formatTokens(usage.deletions)
+        case "files":          return "\(usage.files)"
+        case "netAdditions":   return formatTokens(usage.additions - usage.deletions)
+        default:               return "—"
+        }
+    }
+
+    private func statLabel(_ key: String) -> String {
+        switch key {
+        case "inputTokens":    return "输入"
+        case "outputTokens":   return "输出"
+        case "reasoningTokens": return "推理"
+        case "cacheReadTokens": return "缓存"
+        case "cacheWriteTokens": return "缓存写入"
+        case "totalTokens":    return "总计"
+        case "todayCost":      return "费用"
+        case "sessionCount":   return "会话"
+        case "messageCount":   return "消息"
+        case "projectCount":   return "项目"
+        case "additions":      return "新增"
+        case "deletions":      return "删除"
+        case "files":          return "文件"
+        case "netAdditions":   return "净增"
+        default:               return key
+        }
+    }
+
+    private func statColor(_ key: String) -> Color {
+        switch key {
+        case "inputTokens":    return .blue
+        case "outputTokens":   return .green
+        case "reasoningTokens": return .purple
+        case "cacheReadTokens": return .teal
+        case "cacheWriteTokens": return .cyan
+        case "totalTokens":    return .indigo
+        case "todayCost":      return .red
+        case "sessionCount":   return .orange
+        case "messageCount":   return .yellow
+        case "projectCount":   return .purple
+        case "additions":      return .green
+        case "deletions":      return .red
+        case "files":          return .blue
+        case "netAdditions":   return .teal
+        default:               return .gray
         }
     }
 }
