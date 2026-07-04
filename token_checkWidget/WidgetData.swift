@@ -32,6 +32,7 @@ struct WidgetTodayUsage: Decodable {
     let outputTokens: Int
     let cacheReadTokens: Int
     let sessionCount: Int
+    let messageCount: Int
     let dailyTokens: [WidgetDayTokenData]
     let todayCost: Double
 }

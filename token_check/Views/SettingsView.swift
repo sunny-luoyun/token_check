@@ -171,6 +171,25 @@ struct SettingsView: View {
                         .labelsHidden()
                     }
                 }
+                HStack(spacing: 12) {
+                    Image(systemName: "rectangle.stack.fill")
+                        .font(.title2)
+                        .foregroundStyle(.orange)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("菜单栏第四项统计")
+                            .font(.subheadline.weight(.medium))
+                        Picker("", selection: .init(get: {
+                            UserDefaults.standard.string(forKey: "widgetStatOption") ?? "sessionCount"
+                        }, set: {
+                            UserDefaults.standard.set($0, forKey: "widgetStatOption")
+                        })) {
+                            Text("会话数").tag("sessionCount")
+                            Text("消息数").tag("messageCount")
+                        }
+                        .labelsHidden()
+                    }
+                }
             } header: {
                 settingsHeader(icon: "square.grid.2x2.fill", title: "桌面小组件", color: .green)
             }

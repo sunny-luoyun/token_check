@@ -153,6 +153,7 @@ class TokenViewModel: ObservableObject {
                 outputTokens: adjOutput,
                 cacheReadTokens: adjCacheRead,
                 sessionCount: result.sessionCount,
+                messageCount: result.messageCount,
                 dailyTokens: result.dailyTokens,
                 todayCost: result.todayCost
             )

@@ -8,6 +8,7 @@ struct MenuBarWidgetView: View {
         model.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
     }
 
+    @AppStorage("widgetStatOption") private var statOption = "sessionCount"
     @State private var chartAnimated = false
 
     var body: some View {
@@ -83,7 +84,11 @@ struct MenuBarWidgetView: View {
                 Spacer()
                 statItem("输出", formatTokens(model.adjustedOutput), .green)
                 Spacer()
-                statItem("会话", "\(usage.sessionCount)", .orange)
+                if statOption == "messageCount" {
+                    statItem("消息", "\(usage.messageCount)", .orange)
+                } else {
+                    statItem("会话", "\(usage.sessionCount)", .orange)
+                }
             }
             .font(.caption)
         }

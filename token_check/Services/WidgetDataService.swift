@@ -34,6 +34,7 @@ struct TodayUsage: Codable {
     let outputTokens: Int
     let cacheReadTokens: Int
     let sessionCount: Int
+    let messageCount: Int
     let dailyTokens: [DayTokenData]
     let todayCost: Double
 }
@@ -108,6 +109,8 @@ final class WidgetDataService {
             return nil
         }
 
+        let messageCount = fetchTodayMessageCount(db, todayStart)
+
         let pricingRules = ModelPricingStore.lookup(from: ModelPricingStore.load())
         let todayCost: Double
         if !todayModelEvents.isEmpty {
@@ -132,6 +135,7 @@ final class WidgetDataService {
             outputTokens: output,
             cacheReadTokens: cacheRead,
             sessionCount: sessionCount,
+            messageCount: messageCount,
             dailyTokens: dailyTokensWithCost,
             todayCost: todayCost
         )
@@ -322,6 +326,17 @@ final class WidgetDataService {
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         return (int(stmt, 0), int(stmt, 1), int(stmt, 2), int(stmt, 3))
+    }
+
+    private func fetchTodayMessageCount(_ db: OpaquePointer, _ cutoff: Int64) -> Int {
+        let sql = "SELECT COUNT(*) FROM message WHERE time_created > ?"
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, cutoff)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(stmt, 0))
     }
 
     private func fetchDailyTokens(_ db: OpaquePointer, _ cutoff: Int64) -> [DayTokenData]? {

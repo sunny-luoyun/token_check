@@ -47,17 +47,33 @@ enum BarChartMode: String, AppEnum {
     ]
 }
 
+enum WidgetStatOption: String, AppEnum {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "第四项统计"
+
+    case sessionCount
+    case messageCount
+
+    static var caseDisplayRepresentations: [WidgetStatOption: DisplayRepresentation] = [
+        .sessionCount: "会话数",
+        .messageCount: "消息数"
+    ]
+}
+
 struct BarChartDisplayIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "柱状图显示"
-    static var description: LocalizedStringResource = "切换柱状图的显示内容"
+    static var title: LocalizedStringResource = "显示设置"
+    static var description: LocalizedStringResource = "自定义小组件的显示内容"
 
     @Parameter(title: "显示模式", default: .tokens)
     var mode: BarChartMode
+
+    @Parameter(title: "第四项统计", default: .sessionCount)
+    var statOption: WidgetStatOption
 }
 
 struct TokenWidgetEntry: TimelineEntry {
     let date: Date
     let usage: WidgetTodayUsage?
+    let statOption: WidgetStatOption
 }
 
 private func readUsageFromAppGroup() -> WidgetTodayUsage? {
@@ -71,24 +87,24 @@ private func readUsageFromAppGroup() -> WidgetTodayUsage? {
     return usage
 }
 
-struct TokenTimelineProvider: TimelineProvider {
+struct TokenTimelineProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> TokenWidgetEntry {
-        TokenWidgetEntry(date: Date(), usage: nil)
+        TokenWidgetEntry(date: Date(), usage: nil, statOption: .sessionCount)
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (TokenWidgetEntry) -> Void) {
+    func snapshot(for configuration: BarChartDisplayIntent, in context: Context) async -> TokenWidgetEntry {
         let usage = readUsageFromAppGroup()
-        completion(TokenWidgetEntry(date: Date(), usage: usage))
+        return TokenWidgetEntry(date: Date(), usage: usage, statOption: configuration.statOption)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<TokenWidgetEntry>) -> Void) {
+    func timeline(for configuration: BarChartDisplayIntent, in context: Context) async -> Timeline<TokenWidgetEntry> {
         let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
-        let entry = TokenWidgetEntry(date: Date(), usage: usage)
+        let entry = TokenWidgetEntry(date: Date(), usage: usage, statOption: configuration.statOption)
         let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("TokenCheckWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
-        completion(timeline)
+        return timeline
     }
 }
 
@@ -139,7 +155,11 @@ struct TokenCheckWidgetEntryView: View {
                     Spacer()
                     statItem("输出", formatTokens(usage.outputTokens), .green)
                     Spacer()
-                    statItem("会话", "\(usage.sessionCount)", .orange)
+                    if entry.statOption == .messageCount {
+                        statItem("消息", "\(usage.messageCount)", .orange)
+                    } else {
+                        statItem("会话", "\(usage.sessionCount)", .orange)
+                    }
                 }
                 .font(.caption2)
                 .padding(.horizontal, 14)
@@ -212,7 +232,7 @@ struct TokenCheckWidget: Widget {
     let kind: String = "TokenCheckWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: TokenTimelineProvider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: BarChartDisplayIntent.self, provider: TokenTimelineProvider()) { entry in
             TokenCheckWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Token 用量")
@@ -410,6 +430,7 @@ struct LargeWidgetEntry: TimelineEntry {
     let usage: WidgetTodayUsage?
     let yearlyData: WidgetYearlyHeatmapData?
     let displayMode: BarChartMode
+    let statOption: WidgetStatOption
 }
 
 private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
@@ -435,20 +456,20 @@ private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
 
 struct LargeWidgetTimelineProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> LargeWidgetEntry {
-        LargeWidgetEntry(date: Date(), usage: nil, yearlyData: nil, displayMode: .tokens)
+        LargeWidgetEntry(date: Date(), usage: nil, yearlyData: nil, displayMode: .tokens, statOption: .sessionCount)
     }
 
     func snapshot(for configuration: BarChartDisplayIntent, in context: Context) async -> LargeWidgetEntry {
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
-        return LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode)
+        return LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode, statOption: configuration.statOption)
     }
 
     func timeline(for configuration: BarChartDisplayIntent, in context: Context) async -> Timeline<LargeWidgetEntry> {
         let t0 = CFAbsoluteTimeGetCurrent()
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
-        let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode)
+        let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly, displayMode: configuration.mode, statOption: configuration.statOption)
         let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         widgetLogger.debug("LargeWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
@@ -527,7 +548,11 @@ struct LargeWidgetEntryView: View {
                 Spacer()
                 statItem("输出", formatTokens(usage.outputTokens), .green)
                 Spacer()
-                statItem("会话", "\(usage.sessionCount)", .orange)
+                if entry.statOption == .messageCount {
+                    statItem("消息", "\(usage.messageCount)", .orange)
+                } else {
+                    statItem("会话", "\(usage.sessionCount)", .orange)
+                }
             }
             .font(.caption2)
             .padding(.horizontal, 6)
