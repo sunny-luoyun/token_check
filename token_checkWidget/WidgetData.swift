@@ -86,3 +86,9 @@ struct WidgetYearlyHeatmapData: Decodable {
     let firstWeekday: Int
     let totalDays: Int
 }
+
+struct CombinedWidgetData: Decodable {
+    let todayUsage: WidgetTodayUsage?
+    let monthlyHeatmap: WidgetMonthlyHeatmapData?
+    let yearlyHeatmap: WidgetYearlyHeatmapData?
+}

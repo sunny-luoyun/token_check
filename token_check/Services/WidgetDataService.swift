@@ -63,6 +63,12 @@ struct YearlyHeatmapData: Codable {
     let totalDays: Int
 }
 
+struct CombinedWidgetData: Codable {
+    let todayUsage: TodayUsage?
+    let monthlyHeatmap: MonthlyHeatmapData?
+    let yearlyHeatmap: YearlyHeatmapData?
+}
+
 private struct TodayModelUsage {
     let modelId: String
     let variant: String

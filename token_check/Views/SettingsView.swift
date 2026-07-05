@@ -172,23 +172,43 @@ struct SettingsView: View {
                     }
                 }
                 MenuBarStatPicker(
-                    label: "第一项统计",
+                    label: "菜单栏第一项统计",
                     key: "widgetStat1",
                     defaultVal: "inputTokens"
                 )
                 MenuBarStatPicker(
-                    label: "第二项统计",
+                    label: "菜单栏第二项统计",
                     key: "widgetStat2",
                     defaultVal: "cacheReadTokens"
                 )
                 MenuBarStatPicker(
-                    label: "第三项统计",
+                    label: "菜单栏第三项统计",
                     key: "widgetStat3",
                     defaultVal: "outputTokens"
                 )
                 MenuBarStatPicker(
-                    label: "第四项统计",
+                    label: "菜单栏第四项统计",
                     key: "widgetStat4",
+                    defaultVal: "sessionCount"
+                )
+                WidgetStatPicker(
+                    label: "小组件第一项统计",
+                    key: "widget_stat_1",
+                    defaultVal: "inputTokens"
+                )
+                WidgetStatPicker(
+                    label: "小组件第二项统计",
+                    key: "widget_stat_2",
+                    defaultVal: "cacheReadTokens"
+                )
+                WidgetStatPicker(
+                    label: "小组件第三项统计",
+                    key: "widget_stat_3",
+                    defaultVal: "outputTokens"
+                )
+                WidgetStatPicker(
+                    label: "小组件第四项统计",
+                    key: "widget_stat_4",
                     defaultVal: "sessionCount"
                 )
             } header: {
@@ -705,12 +725,75 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - 小组件统计项选择器（写入 App Group UserDefaults）
+
+private struct WidgetStatPicker: View {
+    let label: String
+    let key: String
+    let defaultVal: String
+    @State private var selection: String
+
+    init(label: String, key: String, defaultVal: String) {
+        self.label = label
+        self.key = key
+        self.defaultVal = defaultVal
+        _selection = State(initialValue: UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.string(forKey: key) ?? defaultVal)
+    }
+
+    private static let allStats: [(tag: String, display: String)] = [
+        ("inputTokens", "输入 Token"),
+        ("outputTokens", "输出 Token"),
+        ("reasoningTokens", "推理 Token"),
+        ("cacheReadTokens", "缓存读取"),
+        ("cacheWriteTokens", "缓存写入"),
+        ("totalTokens", "总 Token"),
+        ("todayCost", "今日费用"),
+        ("sessionCount", "会话数"),
+        ("messageCount", "消息数"),
+        ("projectCount", "项目数"),
+        ("additions", "新增行数"),
+        ("deletions", "删除行数"),
+        ("files", "变更文件"),
+        ("netAdditions", "净增行数"),
+    ]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "rectangle.stack.fill")
+                .font(.title2)
+                .foregroundStyle(.green)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                Picker("", selection: $selection) {
+                    ForEach(Self.allStats, id: \.tag) { stat in
+                        Text(stat.display).tag(stat.tag)
+                    }
+                }
+                .labelsHidden()
+                .onChange(of: selection) { _, newValue in
+                    UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.set(newValue, forKey: key)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - 菜单栏统计项选择器
 
 private struct MenuBarStatPicker: View {
     let label: String
     let key: String
     let defaultVal: String
+    @State private var selection: String
+
+    init(label: String, key: String, defaultVal: String) {
+        self.label = label
+        self.key = key
+        self.defaultVal = defaultVal
+        _selection = State(initialValue: UserDefaults.standard.string(forKey: key) ?? defaultVal)
+    }
 
     private static let allStats: [(tag: String, display: String)] = [
         ("inputTokens", "输入 Token"),
@@ -738,16 +821,15 @@ private struct MenuBarStatPicker: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("菜单栏\(label)")
                     .font(.subheadline.weight(.medium))
-                Picker("", selection: .init(get: {
-                    UserDefaults.standard.string(forKey: key) ?? defaultVal
-                }, set: {
-                    UserDefaults.standard.set($0, forKey: key)
-                })) {
+                Picker("", selection: $selection) {
                     ForEach(Self.allStats, id: \.tag) { stat in
                         Text(stat.display).tag(stat.tag)
                     }
                 }
                 .labelsHidden()
+                .onChange(of: selection) { _, newValue in
+                    UserDefaults.standard.set(newValue, forKey: key)
+                }
             }
         }
     }

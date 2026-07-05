@@ -21,7 +21,6 @@ class TokenViewModel: ObservableObject {
 
     private let logger = Logger(subsystem: "com.luoyun.tokencheck", category: "refresh")
     private let service = WidgetDataService()
-    private var lastWidgetReload: Date = .distantPast
     private var refreshTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
@@ -148,11 +147,12 @@ class TokenViewModel: ObservableObject {
                 }
             }
 
-            // 跨进程操作（UserDefaults + WidgetCenter）在后台执行，绝不阻塞主线程
+            // 写入 widget_data.json（由定时器控制频率，不额外触发 WidgetKit 重载）
             guard let result else {
                 self.logger.debug("Total refresh: no data, skipped")
                 return
             }
+            let w0 = CFAbsoluteTimeGetCurrent()
             let widgetUsage = TodayUsage(
                 totalTokens: adjTotal,
                 inputTokens: adjInput,
@@ -169,47 +169,23 @@ class TokenViewModel: ObservableObject {
                 dailyTokens: result.dailyTokens,
                 todayCost: result.todayCost
             )
-            if let data = try? JSONEncoder().encode(widgetUsage),
-               let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
-                let w0 = CFAbsoluteTimeGetCurrent()
-                defaults.set(data, forKey: "today_usage")
-                self.logger.debug("UD write today_usage: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - w0) * 1000), privacy: .public)ms")
-            }
-            if let monthData = self.service.fetchMonthData(),
-               let encoded = try? JSONEncoder().encode(monthData),
-               let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
-                let w0 = CFAbsoluteTimeGetCurrent()
-                defaults.set(encoded, forKey: "monthly_heatmap")
-                self.logger.debug("UD write monthly_heatmap: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - w0) * 1000), privacy: .public)ms")
-            }
-            if let yearlyData = self.service.fetchYearlyData(),
-               let encoded = try? JSONEncoder().encode(yearlyData),
+            let combined = CombinedWidgetData(
+                todayUsage: widgetUsage,
+                monthlyHeatmap: self.service.fetchMonthData(),
+                yearlyHeatmap: self.service.fetchYearlyData()
+            )
+            if let encoded = try? JSONEncoder().encode(combined),
                let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") {
-                let w0 = CFAbsoluteTimeGetCurrent()
-                let url = container.appendingPathComponent("yearly_heatmap.json")
+                let url = container.appendingPathComponent("widget_data.json")
+                // 数据未变更则不写入，避免无意义触发 WidgetKit 刷新
+                if let existing = try? Data(contentsOf: url), existing == encoded {
+                    return
+                }
                 try? encoded.write(to: url, options: .atomic)
-                self.logger.debug("file write yearly_heatmap: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - w0) * 1000), privacy: .public)ms")
-            }
-            // 将当前刷新间隔同步给 Widget，使 Widget 自身 timeline 与设置保持一致
-            if let intervalDefaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
-                intervalDefaults.set(Int(Self.readRefreshInterval()), forKey: "widget_timeline_interval")
-            }
-            let t3 = CFAbsoluteTimeGetCurrent()
-            self.logger.debug("widget data write total: \(String(format: "%.1f", (t3 - t2) * 1000), privacy: .public)ms")
-            // 节流：与用户设置的刷新间隔保持一致
-            let now = Date()
-            let throttle = Self.readRefreshInterval()
-            guard now.timeIntervalSince(self.lastWidgetReload) >= throttle else {
-                self.logger.debug("reloadAllTimelines throttled (\(Int(throttle))s), skip")
-                self.logger.debug("Total refresh: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
-                return
-            }
-            self.lastWidgetReload = now
-            let t4 = CFAbsoluteTimeGetCurrent()
-            self.logger.debug("reloadAllTimelines called, total refresh: \(String(format: "%.1f", (t4 - t0) * 1000), privacy: .public)ms")
-            DispatchQueue.main.async {
                 WidgetCenter.shared.reloadAllTimelines()
             }
+            self.logger.debug("widget data write: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - w0) * 1000), privacy: .public)ms")
+            self.logger.debug("Total refresh: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         }
     }
 }
