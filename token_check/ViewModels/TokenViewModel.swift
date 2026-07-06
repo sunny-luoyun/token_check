@@ -24,6 +24,12 @@ class TokenViewModel: ObservableObject {
     private var refreshTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
+    private var cachedMonthlyHeatmap: MonthlyHeatmapData?
+    private var cachedYearlyHeatmap: YearlyHeatmapData?
+    private var lastRefreshTotalTokens: Int = -1
+    private var lastRefreshSessionCount: Int = 0
+    private var forceFullRefreshCount: Int = 0
+    private let widgetDataQueue = DispatchQueue(label: "com.luoyun.tokencheck.widget-data", qos: .utility)
 
     init() {
         setupPeriodicRefresh()
@@ -60,6 +66,7 @@ class TokenViewModel: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
+        logger.notice("refreshTimer 已设置: interval=\(Int(interval), privacy: .public)s, fireDate=\(ISO8601DateFormatter().string(from: fireDate), privacy: .public)")
     }
 
     private func setupWakeNotification() {
@@ -97,7 +104,7 @@ class TokenViewModel: ObservableObject {
                 TokenDeltaTracker.shared.refresh(db: db)
             }
             let t1 = CFAbsoluteTimeGetCurrent()
-            self.logger.debug("TokenDeltaTracker: \(String(format: "%.1f", (t1 - t0) * 1000), privacy: .public)ms")
+            self.logger.notice("TokenDeltaTracker: \(String(format: "%.1f", (t1 - t0) * 1000), privacy: .public)ms")
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd"
             df.locale = Locale(identifier: "en_US_POSIX")
@@ -106,7 +113,7 @@ class TokenViewModel: ObservableObject {
             let hasRb = todayRb.total > 0
             let result = service.fetchTodayUsage()
             let t2 = CFAbsoluteTimeGetCurrent()
-            self.logger.debug("fetchTodayUsage: \(String(format: "%.1f", (t2 - t1) * 1000), privacy: .public)ms")
+            self.logger.notice("fetchTodayUsage: \(String(format: "%.1f", (t2 - t1) * 1000), privacy: .public)ms")
 
             if !apiKey.isEmpty {
                 Task {
@@ -149,10 +156,9 @@ class TokenViewModel: ObservableObject {
 
             // 写入 widget_data.json（由定时器控制频率，不额外触发 WidgetKit 重载）
             guard let result else {
-                self.logger.debug("Total refresh: no data, skipped")
+                self.logger.notice("Total refresh: no data, skipped")
                 return
             }
-            let w0 = CFAbsoluteTimeGetCurrent()
             let widgetUsage = TodayUsage(
                 totalTokens: adjTotal,
                 inputTokens: adjInput,
@@ -169,25 +175,59 @@ class TokenViewModel: ObservableObject {
                 dailyTokens: result.dailyTokens,
                 todayCost: result.todayCost
             )
+
+            // 判断数据是否变化：对比总 token 数和 session 数，每 5 次强制完整刷新一次
+            let dataChanged = adjTotal != self.lastRefreshTotalTokens
+                || result.sessionCount != self.lastRefreshSessionCount
+                || self.forceFullRefreshCount >= 5
+
+            if dataChanged {
+                self.logger.notice("数据已变化(oldTotal=\(self.lastRefreshTotalTokens, privacy: .public), newTotal=\(adjTotal, privacy: .public)), 重新计算热力图")
+                let mm = self.service.fetchMonthData()
+                let yy = self.service.fetchYearlyData()
+                let mmDesc = mm.map { "\($0.month)-\($0.totalTokens)" } ?? "nil"
+                let yyDesc = yy.map { "\($0.year)-\($0.totalTokens)" } ?? "nil"
+                self.logger.notice("热力图计算完成: month=\(mmDesc, privacy: .public), year=\(yyDesc, privacy: .public)")
+                self.cachedMonthlyHeatmap = mm
+                self.cachedYearlyHeatmap = yy
+                self.lastRefreshTotalTokens = adjTotal
+                self.lastRefreshSessionCount = result.sessionCount
+                self.forceFullRefreshCount = 0
+            } else {
+                self.forceFullRefreshCount += 1
+                let remaining = 5 - self.forceFullRefreshCount
+                self.logger.notice("数据未变化(total=\(adjTotal, privacy: .public)), 使用缓存热力图, 距强制刷新还有 \(remaining, privacy: .public) 次")
+            }
+
             let combined = CombinedWidgetData(
                 todayUsage: widgetUsage,
-                monthlyHeatmap: self.service.fetchMonthData(),
-                yearlyHeatmap: self.service.fetchYearlyData()
+                monthlyHeatmap: self.cachedMonthlyHeatmap,
+                yearlyHeatmap: self.cachedYearlyHeatmap
             )
-            if let encoded = try? JSONEncoder().encode(combined),
-               let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") {
-                let url = container.appendingPathComponent("widget_data.json")
-                // 数据未变更则不写入，避免无意义触发 WidgetKit 刷新
-                if let existing = try? Data(contentsOf: url), existing == encoded {
+
+            // 在后台队列执行文件写入 + Widget 刷新，不阻塞 loadQueue
+            widgetDataQueue.async {
+                guard let encoded = try? JSONEncoder().encode(combined),
+                      let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") else {
+                    self.logger.notice("widget data 编码或 container 获取失败")
                     return
                 }
+                let url = container.appendingPathComponent("widget_data.json")
+                if let existing = try? Data(contentsOf: url), existing == encoded {
+                    self.logger.notice("widget 数据与文件一致, 跳过写入和刷新")
+                    return
+                }
+                let writeStart = CFAbsoluteTimeGetCurrent()
                 try? encoded.write(to: url, options: .atomic)
-                WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckLargeWidgetV2")
-                WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckWidgetV2")
-                WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckSmallWidgetV2")
+                self.logger.notice("widget 文件写入完成 (\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - writeStart) * 1000), privacy: .public)ms), 刷新 V2 widget 种类")
+                let v2Kinds = ["TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
+                for kind in v2Kinds {
+                    WidgetCenter.shared.reloadTimelines(ofKind: kind)
+                }
+                self.logger.notice("已刷新 \(v2Kinds.count, privacy: .public) 个 V2 widget: \(v2Kinds.joined(separator: ", "), privacy: .public)")
             }
-            self.logger.debug("widget data write: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - w0) * 1000), privacy: .public)ms")
-            self.logger.debug("Total refresh: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
+            let totalElapsed = CFAbsoluteTimeGetCurrent() - t0
+            self.logger.notice("Total refresh: \(String(format: "%.1f", totalElapsed * 1000), privacy: .public)ms")
         }
     }
 }

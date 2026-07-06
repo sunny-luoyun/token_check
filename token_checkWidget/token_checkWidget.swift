@@ -6,19 +6,26 @@ private let widgetLogger = Logger(subsystem: "com.luoyun.tokencheck", category: 
 
 private func cleanupWidgetTimelineCache() {
     let home = NSHomeDirectory()
-    let timelinesDir = URL(fileURLWithPath: home).appendingPathComponent("SystemData/com.apple.chrono/timelines")
-    guard FileManager.default.fileExists(atPath: timelinesDir.path) else { return }
-    guard let enumerator = FileManager.default.enumerator(at: timelinesDir, includingPropertiesForKeys: nil) else { return }
+    let baseDir = URL(fileURLWithPath: home).appendingPathComponent("SystemData/com.apple.chrono")
+    guard FileManager.default.fileExists(atPath: baseDir.path) else { return }
+    guard let enumerator = FileManager.default.enumerator(at: baseDir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
+    let oldWidgetNames = Set(["TokenCheckWidget", "TokenCheckSmallWidget", "TokenCheckLargeWidget"])
     var deleted = 0
     for case let file as URL in enumerator {
-        guard file.pathExtension == "chrono-timeline" else { continue }
+        let parentName = file.deletingLastPathComponent().lastPathComponent
+        guard oldWidgetNames.contains(parentName) else { continue }
         try? FileManager.default.removeItem(at: file)
         deleted += 1
     }
     if deleted > 0 {
-        widgetLogger.debug("cleaned up \(deleted) old widget timeline cache files")
+        widgetLogger.notice("cleaned up \(deleted) old chronod cache files under \(baseDir.path)")
     }
 }
+
+private let _widgetTimelineCleanupOnce: Void = {
+    cleanupWidgetTimelineCache()
+    return ()
+}()
 
 private enum WidgetDataCache {
     static var usage: WidgetTodayUsage?
@@ -31,6 +38,7 @@ private var _cachedWidgetData: CombinedWidgetData?
 private let kMinDataReadInterval: TimeInterval = 5
 
 private func readWidgetData() -> CombinedWidgetData? {
+    _ = _widgetTimelineCleanupOnce
     let now = Date()
     if now.timeIntervalSince(_lastDataReadTime) < kMinDataReadInterval,
        let cached = _cachedWidgetData {
@@ -117,12 +125,12 @@ struct TokenTimelineProvider: TimelineProvider {
         let t0 = CFAbsoluteTimeGetCurrent()
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss.SSS"
-        widgetLogger.debug("TokenCheckWidget timeline START at \(df.string(from: Date()), privacy: .public)")
+        widgetLogger.notice("TokenCheckWidget timeline START at \(df.string(from: Date()), privacy: .public)")
         let usage = readUsageFromAppGroup()
         let entry = TokenWidgetEntry(date: Date(), usage: usage)
         let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        widgetLogger.debug("TokenCheckWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
+        widgetLogger.notice("TokenCheckWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
     }
 }
@@ -360,12 +368,12 @@ struct HeatmapTimelineProvider: TimelineProvider {
         let t0 = CFAbsoluteTimeGetCurrent()
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss.SSS"
-        widgetLogger.debug("HeatmapWidget getTimeline START at \(df.string(from: Date()), privacy: .public)")
+        widgetLogger.notice("HeatmapWidget getTimeline START at \(df.string(from: Date()), privacy: .public)")
         let data = readHeatmapFromAppGroup()
         let entry = HeatmapWidgetEntry(date: Date(), data: data)
         let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        widgetLogger.debug("HeatmapWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
+        widgetLogger.notice("HeatmapWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
     }
 }
@@ -562,13 +570,13 @@ struct LargeWidgetTimelineProvider: TimelineProvider {
         let t0 = CFAbsoluteTimeGetCurrent()
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss.SSS"
-        widgetLogger.debug("LargeWidget timeline START at \(df.string(from: Date()), privacy: .public)")
+        widgetLogger.notice("LargeWidget timeline START at \(df.string(from: Date()), privacy: .public)")
         let usage = readUsageFromAppGroup()
         let yearly = readYearlyHeatmapFromAppGroup()
         let entry = LargeWidgetEntry(date: Date(), usage: usage, yearlyData: yearly)
         let nextUpdate = nextAlignedRefreshDate()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        widgetLogger.debug("LargeWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
+        widgetLogger.notice("LargeWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
         completion(timeline)
     }
 }
