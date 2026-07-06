@@ -182,7 +182,9 @@ class TokenViewModel: ObservableObject {
                     return
                 }
                 try? encoded.write(to: url, options: .atomic)
-                WidgetCenter.shared.reloadAllTimelines()
+                WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckLargeWidgetV2")
+                WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckWidgetV2")
+                WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckSmallWidgetV2")
             }
             self.logger.debug("widget data write: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - w0) * 1000), privacy: .public)ms")
             self.logger.debug("Total refresh: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
