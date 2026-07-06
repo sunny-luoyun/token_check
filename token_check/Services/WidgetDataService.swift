@@ -143,9 +143,14 @@ final class WidgetDataService {
         let dailyCosts = fetchDailyCosts(db, cutoff: sevenDaysAgo, pricingRules: pricingRules)
         let costDf = DateFormatter()
         costDf.dateFormat = "yyyy-MM-dd"
+        costDf.locale = Locale(identifier: "en_US_POSIX")
         let dailyTokensWithCost = dailyTokens.map { day in
             let key = costDf.string(from: day.date)
-            return DayTokenData(id: day.id, date: day.date, totalTokens: day.totalTokens, dailyCost: dailyCosts[key] ?? 0)
+            var total = day.totalTokens
+            if let ev = TokenDeltaTracker.shared.dailyConsumption[key] {
+                total = ev.total
+            }
+            return DayTokenData(id: day.id, date: day.date, totalTokens: total, dailyCost: dailyCosts[key] ?? 0)
         }
 
         return TodayUsage(
@@ -186,7 +191,7 @@ final class WidgetDataService {
 
         let sql = """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
-                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output), 0) AS total
+                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output + tokens_reasoning + tokens_cache_write), 0) AS total
             FROM session
             WHERE time_created >= ? AND time_created < ?
             GROUP BY day
@@ -251,7 +256,7 @@ final class WidgetDataService {
 
         let sql = """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
-                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output), 0) AS total
+                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output + tokens_reasoning + tokens_cache_write), 0) AS total
             FROM session
             WHERE time_created >= ? AND time_created < ?
             GROUP BY day
@@ -383,7 +388,7 @@ final class WidgetDataService {
     private func fetchDailyTokens(_ db: OpaquePointer, _ cutoff: Int64) -> [DayTokenData]? {
         let sql = """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
-                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output), 0) AS total
+                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output + tokens_reasoning + tokens_cache_write), 0) AS total
             FROM session
             WHERE time_created > ?
             GROUP BY day
