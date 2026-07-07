@@ -57,19 +57,13 @@ private func widgetRefreshInterval() -> Int {
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else {
         return 300
     }
-    let value = defaults.integer(forKey: "widget_timeline_interval")
+    let value = defaults.integer(forKey: "widgetRefreshInterval")
     return max(60, value == 0 ? 300 : value)
 }
 
 private func nextAlignedRefreshDate() -> Date {
     let interval = widgetRefreshInterval()
     let now = Date()
-
-    // 1分钟间隔不对齐，直接加间隔
-    guard interval > 60 else {
-        return Calendar.current.date(byAdding: .second, value: interval, to: now)!
-    }
-
     let seconds = now.timeIntervalSince1970
     let aligned = (floor(seconds / Double(interval)) + 1) * Double(interval)
     return Date(timeIntervalSince1970: aligned)

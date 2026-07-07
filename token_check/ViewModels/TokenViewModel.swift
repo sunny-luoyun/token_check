@@ -52,14 +52,8 @@ class TokenViewModel: ObservableObject {
         refreshTimer?.invalidate()
         let interval = Self.readRefreshInterval()
         let now = Date()
-
-        let fireDate: Date
-        if interval > 60 {
-            let secs = now.timeIntervalSince1970
-            fireDate = Date(timeIntervalSince1970: (floor(secs / interval) + 1) * interval)
-        } else {
-            fireDate = now.addingTimeInterval(interval)
-        }
+        let secs = now.timeIntervalSince1970
+        let fireDate = Date(timeIntervalSince1970: (floor(secs / interval) + 1) * interval)
 
         let timer = Timer(fire: fireDate, interval: interval, repeats: true) { [weak self] _ in
             self?.refresh(showLoading: false)
@@ -67,6 +61,11 @@ class TokenViewModel: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
         logger.notice("refreshTimer 已设置: interval=\(Int(interval), privacy: .public)s, fireDate=\(ISO8601DateFormatter().string(from: fireDate), privacy: .public)")
+        let v2Kinds = ["TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
+        for kind in v2Kinds {
+            WidgetCenter.shared.reloadTimelines(ofKind: kind)
+        }
+        logger.notice("已刷新 \(v2Kinds.count, privacy: .public) 个 V2 widget: \(v2Kinds.joined(separator: ", "), privacy: .public)")
     }
 
     private func setupWakeNotification() {
@@ -85,9 +84,17 @@ class TokenViewModel: ObservableObject {
             }
     }
 
+    private static var isSyncingInterval = false
+
     static func readRefreshInterval() -> TimeInterval {
         let seconds = UserDefaults.standard.integer(forKey: "widgetRefreshInterval")
-        return max(60, seconds == 0 ? 60 : TimeInterval(seconds))
+        let interval = max(60, seconds == 0 ? 60 : TimeInterval(seconds))
+        if !isSyncingInterval, let groupDefaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
+            isSyncingInterval = true
+            groupDefaults.set(Int(interval), forKey: "widgetRefreshInterval")
+            isSyncingInterval = false
+        }
+        return interval
     }
 
     func refresh(showLoading: Bool = true) {
