@@ -14,7 +14,7 @@ struct SettingsView: View {
     @State private var diskError: String?
     @State private var showCleanAlert = false
     @State private var cleanSuccess = false
-    @AppStorage("widgetRefreshInterval") private var widgetRefreshInterval = 60
+    @AppStorage("widgetRefreshInterval", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var widgetRefreshInterval = 60
 
     @Environment(\.appTheme) var theme
 

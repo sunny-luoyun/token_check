@@ -77,25 +77,20 @@ class TokenViewModel: ObservableObject {
     }
 
     private func setupSettingsObserver() {
-        settingsObserver = NotificationCenter.default
-            .addObserver(forName: UserDefaults.didChangeNotification,
-                         object: nil, queue: .main) { [weak self] _ in
-                self?.setupPeriodicRefresh()
-            }
+            settingsObserver = NotificationCenter.default
+                .addObserver(forName: UserDefaults.didChangeNotification,
+                             object: nil, queue: .main) { [weak self] _ in
+                    self?.setupPeriodicRefresh()
+                    self?.refresh(showLoading: false)
+                }
     }
 
-    private static var isSyncingInterval = false
-
     static func readRefreshInterval() -> TimeInterval {
-        let seconds = UserDefaults.standard.integer(forKey: "widgetRefreshInterval")
-        let interval = max(60, seconds == 0 ? 60 : TimeInterval(seconds))
-        if !isSyncingInterval, let groupDefaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
-            isSyncingInterval = true
-            groupDefaults.set(Int(interval), forKey: "widgetRefreshInterval")
-            groupDefaults.synchronize()
-            isSyncingInterval = false
+        guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else {
+            return 60
         }
-        return interval
+        let seconds = defaults.integer(forKey: "widgetRefreshInterval")
+        return max(60, seconds == 0 ? 60 : TimeInterval(seconds))
     }
 
     func refresh(showLoading: Bool = true) {
