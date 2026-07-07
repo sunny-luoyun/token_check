@@ -57,6 +57,7 @@ private func widgetRefreshInterval() -> Int {
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else {
         return 300
     }
+    defaults.synchronize()
     let value = defaults.integer(forKey: "widgetRefreshInterval")
     return max(60, value == 0 ? 300 : value)
 }

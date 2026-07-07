@@ -92,6 +92,7 @@ class TokenViewModel: ObservableObject {
         if !isSyncingInterval, let groupDefaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") {
             isSyncingInterval = true
             groupDefaults.set(Int(interval), forKey: "widgetRefreshInterval")
+            groupDefaults.synchronize()
             isSyncingInterval = false
         }
         return interval
