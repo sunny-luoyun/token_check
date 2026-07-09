@@ -197,7 +197,7 @@ class CostViewModel: ObservableObject {
         ).count
 
         if customizedCount == 0 {
-            return "输入（未命中） ¥1/百万token · 缓存命中 ¥0.02/百万token · 输出 ¥2/百万token"
+            return "输入（未命中） $0.14/百万token · 缓存命中 $0.0028/百万token · 输出 $0.28/百万token"
         }
 
         return "按设置中的模型单价计算（已配置 \(customizedCount) 个模型）"

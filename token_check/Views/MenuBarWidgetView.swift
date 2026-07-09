@@ -73,7 +73,7 @@ struct MenuBarWidgetView: View {
                         ProgressView()
                             .scaleEffect(0.5)
                     } else if let balance = model.deepseekBalance {
-                        Text("余额 ¥\(balance)")
+                        Text("余额 $\(balance)")
                             .font(.caption2.monospaced())
                             .foregroundStyle(.green)
                     }
@@ -141,7 +141,7 @@ struct MenuBarWidgetView: View {
     }
 
     private func formatCost(_ c: Double) -> String {
-        String(format: "¥%.2f", c)
+        String(format: "$%.2f", c)
     }
 
     private func formatTokens(_ n: Int) -> String {

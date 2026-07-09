@@ -140,7 +140,7 @@ private func formatTokens(_ n: Int) -> String {
 }
 
 private func formatCost(_ c: Double) -> String {
-    String(format: "¥%.2f", c)
+    String(format: "$%.2f", c)
 }
 
 private func statValue(for key: String, usage: WidgetTodayUsage?) -> String {

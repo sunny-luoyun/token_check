@@ -71,6 +71,6 @@ struct CostBreakdownTable: View {
     }
 
     private func formatCost(_ c: Double) -> String {
-        String(format: "¥%.3f", c)
+        String(format: "$%.3f", c)
     }
 }

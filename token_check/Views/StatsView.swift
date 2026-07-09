@@ -539,6 +539,6 @@ struct StatsView: View {
     }
 
     private func formatCost(_ c: Double) -> String {
-        String(format: "¥%.4f", c)
+        String(format: "$%.4f", c)
     }
 }

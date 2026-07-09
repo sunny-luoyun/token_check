@@ -21,10 +21,10 @@ struct TimeWindow: Codable, Identifiable, Hashable {
 }
 
 struct ModelPricingRule: Codable, Identifiable, Hashable {
-    static let defaultInputMissPricePerMillion = 1.0
-    static let defaultCacheHitPricePerMillion = 0.02
-    static let defaultOutputPricePerMillion = 2.0
-    static let defaultReasoningPricePerMillion = 2.0
+    static let defaultInputMissPricePerMillion = 0.14
+    static let defaultCacheHitPricePerMillion = 0.0028
+    static let defaultOutputPricePerMillion = 0.28
+    static let defaultReasoningPricePerMillion = 0.28
 
     let providerID: String
     let modelId: String

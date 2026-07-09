@@ -103,7 +103,7 @@ struct SettingsView: View {
                             Image(systemName: "info.circle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text("按模型 ID + variant 分别配置。价格单位：元 / 百万 token。可设置多个时间段和分时折扣。")
+                            Text("按模型 ID + variant 分别配置。价格单位：美元 / 百万 token。可设置多个时间段和分时折扣。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer()
@@ -391,7 +391,7 @@ struct SettingsView: View {
             let df = DateFormatter()
             df.dateFormat = "MM-dd"
             let active = rule.periods.first { now >= $0.effectiveFrom && ($0.effectiveTo == nil || now < $0.effectiveTo!) }
-            var summary = "输入 ¥\(String(format: "%.2f", prices.inputMiss)) / 缓存 ¥\(String(format: "%.4f", prices.cacheHit)) / 输出 ¥\(String(format: "%.2f", prices.output))"
+            var summary = "输入 $\(String(format: "%.2f", prices.inputMiss)) / 缓存 $\(String(format: "%.4f", prices.cacheHit)) / 输出 $\(String(format: "%.2f", prices.output))"
             if let active = active, let windows = active.timeWindows, !windows.isEmpty {
                 let hour = Calendar.current.component(.hour, from: now)
                 if let w = windows.first(where: { hour >= $0.startHour && hour < $0.endHour }) {

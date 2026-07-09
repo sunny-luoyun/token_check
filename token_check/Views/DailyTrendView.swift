@@ -237,11 +237,11 @@ struct DailyTrendView: View {
 
     private func formatCost(_ value: Double) -> String {
         if value < 0.01 {
-            String(format: "¥%.4f", value)
+            String(format: "$%.4f", value)
         } else if value < 1 {
-            String(format: "¥%.2f", value)
+            String(format: "$%.2f", value)
         } else {
-            String(format: "¥%.1f", value)
+            String(format: "$%.1f", value)
         }
     }
 }
@@ -334,8 +334,8 @@ private struct TrendChartView: View {
     }
 
     private func formatCost(_ value: Double) -> String {
-        if value < 0.01 { String(format: "¥%.4f", value) }
-        else if value < 1 { String(format: "¥%.2f", value) }
-        else { String(format: "¥%.1f", value) }
+        if value < 0.01 { String(format: "$%.4f", value) }
+        else if value < 1 { String(format: "$%.2f", value) }
+        else { String(format: "$%.1f", value) }
     }
 }
