@@ -10,12 +10,15 @@ struct Session: Identifiable {
     let tokensCacheRead: Int
     let tokensCacheWrite: Int
     let cost: Double
+    let providerID: String
     let modelId: String
     let modelVariant: String
     let timeCreated: Date
     let project: String?
 
     var modelDisplayName: String {
-        modelVariant == "default" || modelVariant == "max" ? modelId : "\(modelId) (\(modelVariant))"
+        let name = modelVariant == "default" || modelVariant == "max" ? modelId : "\(modelId) (\(modelVariant))"
+        if providerID == "opencode" { return name }
+        return "[\(providerID)] \(name)"
     }
 }

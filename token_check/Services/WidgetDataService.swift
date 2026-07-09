@@ -70,6 +70,7 @@ struct CombinedWidgetData: Codable {
 }
 
 private struct TodayModelUsage {
+    let providerID: String
     let modelId: String
     let variant: String
     let inputTokens: Int
@@ -77,7 +78,7 @@ private struct TodayModelUsage {
     let cacheReadTokens: Int
 
     var pricingKey: String {
-        "\(modelId)/\(variant)"
+        "\(providerID)/\(modelId)/\(variant)"
     }
 }
 
@@ -304,9 +305,10 @@ final class WidgetDataService {
         let now = Date.now
         return modelConsumption.reduce(0) { total, item in
             let parts = item.key.split(separator: "/")
-            let modelId = String(parts[0])
-            let variant = parts.count > 1 ? String(parts[1]) : "default"
-            let pricing = pricingRules[item.key] ?? .defaults(modelId: modelId, variant: variant)
+            let providerID = String(parts[0])
+            let modelId = parts.count > 1 ? String(parts[1]) : "unknown"
+            let variant = parts.count > 2 ? String(parts[2]) : "default"
+            let pricing = pricingRules[item.key] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
             guard pricing.isEnabled else { return total }
             let prices = pricing.price(at: now)
             return total
@@ -416,14 +418,15 @@ final class WidgetDataService {
 
     private func fetchTodayModelUsage(_ db: OpaquePointer, _ cutoff: Int64) -> [TodayModelUsage] {
         let sql = """
-            SELECT json_extract(model, '$.id') AS model_id,
+            SELECT COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
+                   json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_output), 0),
                    COALESCE(SUM(tokens_cache_read), 0)
             FROM session
             WHERE time_created > ?
-            GROUP BY model_id, variant
+            GROUP BY provider_id, model_id, variant
         """
         var stmt_: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
@@ -435,11 +438,12 @@ final class WidgetDataService {
         while sqlite3_step(stmt) == SQLITE_ROW {
             usage.append(
                 TodayModelUsage(
-                    modelId: text(stmt, 0) ?? "unknown",
-                    variant: text(stmt, 1) ?? "default",
-                    inputTokens: int(stmt, 2),
-                    outputTokens: int(stmt, 3),
-                    cacheReadTokens: int(stmt, 4)
+                    providerID: text(stmt, 0) ?? "opencode",
+                    modelId: text(stmt, 1) ?? "unknown",
+                    variant: text(stmt, 2) ?? "default",
+                    inputTokens: int(stmt, 3),
+                    outputTokens: int(stmt, 4),
+                    cacheReadTokens: int(stmt, 5)
                 )
             )
         }
@@ -449,7 +453,7 @@ final class WidgetDataService {
     private func calculateTodayCost(_ usage: [TodayModelUsage], pricingRules: [String: ModelPricingRule]) -> Double {
         let now = Date.now
         return usage.reduce(0) { total, item in
-            let pricing = pricingRules[item.pricingKey] ?? .defaults(modelId: item.modelId, variant: item.variant)
+            let pricing = pricingRules[item.pricingKey] ?? .defaults(providerID: item.providerID, modelId: item.modelId, variant: item.variant)
             guard pricing.isEnabled else { return total }
             let prices = pricing.price(at: now)
             return total
@@ -462,6 +466,7 @@ final class WidgetDataService {
     private func fetchDailyCosts(_ db: OpaquePointer, cutoff: Int64, pricingRules: [String: ModelPricingRule]) -> [String: Double] {
         let sql = """
             SELECT date(datetime(s.time_created / 1000, 'unixepoch', 'localtime')) AS day,
+                   COALESCE(json_extract(s.model, '$.providerID'), 'opencode') AS provider_id,
                    json_extract(s.model, '$.id') AS model_id,
                    CASE WHEN json_extract(s.model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(s.model, '$.variant'), 'default') END AS variant,
                    COALESCE(SUM(s.tokens_input), 0),
@@ -469,7 +474,7 @@ final class WidgetDataService {
                    COALESCE(SUM(s.tokens_cache_read), 0)
             FROM session s
             WHERE s.time_created > ?
-            GROUP BY day, model_id, variant
+            GROUP BY day, provider_id, model_id, variant
             ORDER BY day
         """
         var stmt_: OpaquePointer?
@@ -482,11 +487,12 @@ final class WidgetDataService {
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let dayStr = text(stmt, 0) else { continue }
             let usage = TodayModelUsage(
-                modelId: text(stmt, 1) ?? "unknown",
-                variant: text(stmt, 2) ?? "default",
-                inputTokens: int(stmt, 3),
-                outputTokens: int(stmt, 4),
-                cacheReadTokens: int(stmt, 5)
+                providerID: text(stmt, 1) ?? "opencode",
+                modelId: text(stmt, 2) ?? "unknown",
+                variant: text(stmt, 3) ?? "default",
+                inputTokens: int(stmt, 4),
+                outputTokens: int(stmt, 5),
+                cacheReadTokens: int(stmt, 6)
             )
             dayModelUsage[dayStr, default: []].append(usage)
         }
@@ -496,7 +502,7 @@ final class WidgetDataService {
         for (day, usages) in dayModelUsage {
             var dayCost = 0.0
             for item in usages {
-                let pricing = pricingRules[item.pricingKey] ?? .defaults(modelId: item.modelId, variant: item.variant)
+                let pricing = pricingRules[item.pricingKey] ?? .defaults(providerID: item.providerID, modelId: item.modelId, variant: item.variant)
                 guard pricing.isEnabled else { continue }
                 let prices = pricing.price(at: now)
                 dayCost += Double(item.inputTokens) / 1_000_000 * prices.inputMiss

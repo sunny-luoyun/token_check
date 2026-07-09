@@ -2,6 +2,7 @@ import Foundation
 
 struct ModelUsage: Identifiable {
     let id: String
+    let providerID: String
     let modelId: String
     let variant: String
     let sessions: Int
@@ -13,6 +14,12 @@ struct ModelUsage: Identifiable {
     let cost: Double
 
     var displayName: String {
-        variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
+        buildDisplayName()
+    }
+
+    private func buildDisplayName() -> String {
+        let name = variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
+        if providerID == "opencode" { return name }
+        return "[\(providerID)] \(name)"
     }
 }

@@ -79,8 +79,8 @@ class DailyTrendViewModel: ObservableObject {
     }
 
     func cost(for item: DailyModelUsage, metric: MetricType) -> Double {
-        let key = "\(item.modelId)/\(item.variant)"
-        let pricing = pricingLookup[key] ?? .defaults(modelId: item.modelId, variant: item.variant)
+        let key = "\(item.providerID)/\(item.modelId)/\(item.variant)"
+        let pricing = pricingLookup[key] ?? .defaults(providerID: item.providerID, modelId: item.modelId, variant: item.variant)
         let prices = pricing.price(at: item.date)
         switch metric {
         case .total:
@@ -166,7 +166,7 @@ class DailyTrendViewModel: ObservableObject {
                 let pricingRules = ModelPricingStore.load()
 
                 let filteredData = data.filter {
-                    ModelPricingStore.isEnabled(forModelId: $0.modelId, variant: $0.variant, rules: pricingRules)
+                    ModelPricingStore.isEnabled(forModelId: $0.modelId, variant: $0.variant, providerID: $0.providerID, rules: pricingRules)
                 }
 
                 var days: [String] = []
@@ -238,12 +238,12 @@ class DailyTrendViewModel: ObservableObject {
         var resultMap: [String: DailyModelUsage] = [:]
 
         for item in sessionData {
-            let key = "\(df.string(from: item.date))\t\(item.modelId)\t\(item.variant)"
+            let key = "\(df.string(from: item.date))\t\(item.providerID)\t\(item.modelId)\t\(item.variant)"
             resultMap[key] = item
         }
 
         for item in eventData {
-            let key = "\(df.string(from: item.date))\t\(item.modelId)\t\(item.variant)"
+            let key = "\(df.string(from: item.date))\t\(item.providerID)\t\(item.modelId)\t\(item.variant)"
             if resultMap[key] == nil {
                 resultMap[key] = item
             }
@@ -257,11 +257,11 @@ class DailyTrendViewModel: ObservableObject {
         let start = cal.startOfDay(for: startDate)
         let end = cal.startOfDay(for: endDate)
 
-        let allModels = Set(data.map { "\($0.modelId)\t\($0.variant)" })
+        let allModels = Set(data.map { "\($0.providerID)\t\($0.modelId)\t\($0.variant)" })
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
         let lookup = Dictionary(uniqueKeysWithValues: data.map {
-            ("\(df.string(from: $0.date))\t\($0.modelId)\t\($0.variant)", $0)
+            ("\(df.string(from: $0.date))\t\($0.providerID)\t\($0.modelId)\t\($0.variant)", $0)
         })
 
         var result: [DailyModelUsage] = []
@@ -269,16 +269,18 @@ class DailyTrendViewModel: ObservableObject {
         while current <= end {
             let dateStr = df.string(from: current)
             for key in allModels {
-                let parts = key.split(separator: "\t", maxSplits: 1)
-                let modelId = String(parts[0])
-                let variant = parts.count > 1 ? String(parts[1]) : "default"
-                let lookupKey = "\(dateStr)\t\(modelId)\t\(variant)"
+                let parts = key.split(separator: "\t", maxSplits: 2)
+                let providerID = String(parts[0])
+                let modelId = parts.count > 1 ? String(parts[1]) : "unknown"
+                let variant = parts.count > 2 ? String(parts[2]) : "default"
+                let lookupKey = "\(dateStr)\t\(providerID)\t\(modelId)\t\(variant)"
                 if let item = lookup[lookupKey] {
                     result.append(item)
                 } else {
                     result.append(DailyModelUsage(
-                        id: "\(dateStr)/\(modelId)/\(variant)",
+                        id: "\(dateStr)/\(providerID)/\(modelId)/\(variant)",
                         date: current,
+                        providerID: providerID,
                         modelId: modelId,
                         variant: variant,
                         inputTokens: 0,

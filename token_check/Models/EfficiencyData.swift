@@ -21,12 +21,18 @@ struct ProductivitySummary {
 struct SessionEfficiency: Identifiable {
     let id: String
     let title: String
+    let providerID: String
     let modelId: String
     let agent: String
     let additions: Int
     let deletions: Int
     let files: Int
     let totalTokens: Int
+
+    var displayModelName: String {
+        if providerID == "opencode" { return modelId }
+        return "[\(providerID)] \(modelId)"
+    }
 
     var tokensPerLine: Double {
         let changes = additions + deletions

@@ -73,7 +73,8 @@ final class DatabaseService {
     func fetchModelUsage() throws -> [ModelUsage] {
         try readAll(
             """
-            SELECT json_extract(model, '$.id') AS model_id,
+            SELECT COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
+                   json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COUNT(*) AS sessions,
                    COALESCE(SUM(tokens_input), 0),
@@ -82,25 +83,27 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_cache_read), 0),
                    COALESCE(SUM(cost), 0)
             FROM session
-            GROUP BY model_id, variant
+            GROUP BY provider_id, model_id, variant
             ORDER BY SUM(tokens_input) DESC
             """
         ) { stmt in
-            let mid = text(stmt, 0) ?? "unknown"
-            let variant = text(stmt, 1) ?? "default"
-            let input = int(stmt, 3)
-            let output = int(stmt, 4)
+            let providerID = text(stmt, 0) ?? "opencode"
+            let mid = text(stmt, 1) ?? "unknown"
+            let variant = text(stmt, 2) ?? "default"
+            let input = int(stmt, 4)
+            let output = int(stmt, 5)
             return ModelUsage(
-                id: "\(mid)/\(variant)",
+                id: "\(providerID)/\(mid)/\(variant)",
+                providerID: providerID,
                 modelId: mid,
                 variant: variant,
-                sessions: int(stmt, 2),
+                sessions: int(stmt, 3),
                 inputTokens: input,
                 outputTokens: output,
-                reasoningTokens: int(stmt, 5),
-                cacheReadTokens: int(stmt, 6),
+                reasoningTokens: int(stmt, 6),
+                cacheReadTokens: int(stmt, 7),
                 totalTokens: input + output,
-                cost: double(stmt, 7)
+                cost: double(stmt, 8)
             )
         }
     }
@@ -158,15 +161,16 @@ final class DatabaseService {
         return try readAll(
             """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
+                   COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
                    json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
-                    COALESCE(SUM(tokens_input), 0),
-                    COALESCE(SUM(tokens_cache_read), 0),
-                    COALESCE(SUM(tokens_output), 0),
-                    COALESCE(SUM(tokens_reasoning), 0)
+                     COALESCE(SUM(tokens_input), 0),
+                     COALESCE(SUM(tokens_cache_read), 0),
+                     COALESCE(SUM(tokens_output), 0),
+                     COALESCE(SUM(tokens_reasoning), 0)
             FROM session
             \(whereClause)
-            GROUP BY day, model_id, variant
+            GROUP BY day, provider_id, model_id, variant
             ORDER BY day, model_id
             """,
             parameters: params
@@ -175,17 +179,19 @@ final class DatabaseService {
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd"
             let date = df.date(from: dateStr) ?? .now
-            let mid = text(stmt, 1) ?? "unknown"
-            let variant = text(stmt, 2) ?? "default"
+            let providerID = text(stmt, 1) ?? "opencode"
+            let mid = text(stmt, 2) ?? "unknown"
+            let variant = text(stmt, 3) ?? "default"
             return DailyModelUsage(
-                id: "\(dateStr)/\(mid)/\(variant)",
+                id: "\(dateStr)/\(providerID)/\(mid)/\(variant)",
                 date: date,
+                providerID: providerID,
                 modelId: mid,
                 variant: variant,
-                inputTokens: int(stmt, 3),
-                outputTokens: int(stmt, 5),
-                cacheReadTokens: int(stmt, 4),
-                reasoningTokens: int(stmt, 6),
+                inputTokens: int(stmt, 4),
+                outputTokens: int(stmt, 6),
+                cacheReadTokens: int(stmt, 5),
+                reasoningTokens: int(stmt, 7),
                 cacheWriteTokens: 0
             )
         }
@@ -225,32 +231,35 @@ final class DatabaseService {
         let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
         return try readAll(
             """
-            SELECT json_extract(model, '$.id') AS model_id,
+            SELECT COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
+                   json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COUNT(*) AS sessions,
-                    COALESCE(SUM(tokens_input), 0) AS miss,
-                    COALESCE(SUM(tokens_cache_read), 0) AS hit,
-                    COALESCE(SUM(tokens_output), 0) AS output,
-                    COALESCE(SUM(tokens_reasoning), 0) AS reasoning
+                     COALESCE(SUM(tokens_input), 0) AS miss,
+                     COALESCE(SUM(tokens_cache_read), 0) AS hit,
+                     COALESCE(SUM(tokens_output), 0) AS output,
+                     COALESCE(SUM(tokens_reasoning), 0) AS reasoning
             FROM session
             \(whereClause)
-            GROUP BY model_id, variant
+            GROUP BY provider_id, model_id, variant
             ORDER BY SUM(tokens_input) DESC
             """,
             parameters: params
         ) { stmt in
-            let modelId = text(stmt, 0) ?? "unknown"
-            let variant = text(stmt, 1) ?? "default"
-            let pricing = pricingLookup["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
+            let providerID = text(stmt, 0) ?? "opencode"
+            let modelId = text(stmt, 1) ?? "unknown"
+            let variant = text(stmt, 2) ?? "default"
+            let pricing = pricingLookup["\(providerID)/\(modelId)/\(variant)"] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
             return ModelCostBreakdown(
-                id: "\(modelId)/\(variant)",
+                id: "\(providerID)/\(modelId)/\(variant)",
+                providerID: providerID,
                 modelId: modelId,
                 variant: variant,
-                sessions: int(stmt, 2),
-                cacheMissTokens: int(stmt, 3),
-                cacheHitTokens: int(stmt, 4),
-                outputTokens: int(stmt, 5),
-                reasoningTokens: int(stmt, 6),
+                sessions: int(stmt, 3),
+                cacheMissTokens: int(stmt, 4),
+                cacheHitTokens: int(stmt, 5),
+                outputTokens: int(stmt, 6),
+                reasoningTokens: int(stmt, 7),
                 pricing: pricing,
                 referenceDate: referenceDate
             )
@@ -263,7 +272,8 @@ final class DatabaseService {
         let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
         let rows = try readAll(
             """
-            SELECT json_extract(model, '$.id') AS model_id,
+            SELECT COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
+                   json_extract(model, '$.id') AS model_id,
                    CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
                    COALESCE(SUM(tokens_input), 0) AS miss,
                    COALESCE(SUM(tokens_cache_read), 0) AS hit,
@@ -272,13 +282,14 @@ final class DatabaseService {
                    COUNT(*) AS sessions
             FROM session
             \(whereClause)
-            GROUP BY model_id, variant
+            GROUP BY provider_id, model_id, variant
             """,
             parameters: params
         ) { stmt in
-            let modelId = text(stmt, 0) ?? "unknown"
-            let variant = text(stmt, 1) ?? "default"
-            let pricing = pricingLookup["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
+            let providerID = text(stmt, 0) ?? "opencode"
+            let modelId = text(stmt, 1) ?? "unknown"
+            let variant = text(stmt, 2) ?? "default"
+            let pricing = pricingLookup["\(providerID)/\(modelId)/\(variant)"] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
             let prices = pricing.price(at: referenceDate)
             let miss = int(stmt, 2)
             let hit = int(stmt, 3)
@@ -334,6 +345,7 @@ final class DatabaseService {
                 tokensCacheRead: int(stmt, 6),
                 tokensCacheWrite: int(stmt, 7),
                 cost: double(stmt, 8),
+                providerID: modelDict?["providerID"] as? String ?? "opencode",
                 modelId: modelDict?["id"] as? String ?? "unknown",
                 modelVariant: { let v = modelDict?["variant"] as? String ?? "default"; return v == "max" ? "default" : v }(),
                 timeCreated: Date(timeIntervalSince1970: TimeInterval(int64(stmt, 10)) / 1000),
@@ -448,6 +460,7 @@ final class DatabaseService {
             """
             SELECT s.id,
                    COALESCE(NULLIF(s.title, ''), s.slug, '(无标题)'),
+                   COALESCE(json_extract(s.model, '$.providerID'), 'opencode'),
                    json_extract(s.model, '$.id'),
                    COALESCE(NULLIF(s.agent, ''), 'unknown'),
                    COALESCE(s.summary_additions, 0),
@@ -464,12 +477,13 @@ final class DatabaseService {
             SessionEfficiency(
                 id: text(stmt, 0) ?? "",
                 title: text(stmt, 1) ?? "(无标题)",
-                modelId: text(stmt, 2) ?? "unknown",
-                agent: text(stmt, 3) ?? "unknown",
-                additions: int(stmt, 4),
-                deletions: int(stmt, 5),
-                files: int(stmt, 6),
-                totalTokens: int(stmt, 7)
+                providerID: text(stmt, 2) ?? "opencode",
+                modelId: text(stmt, 3) ?? "unknown",
+                agent: text(stmt, 4) ?? "unknown",
+                additions: int(stmt, 5),
+                deletions: int(stmt, 6),
+                files: int(stmt, 7),
+                totalTokens: int(stmt, 8)
             )
         }
     }

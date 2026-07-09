@@ -636,7 +636,7 @@ struct SettingsView: View {
             do {
                 let service = try DatabaseService()
                 let models = try service.fetchModelUsage().map {
-                    savedLookup[$0.id] ?? .defaults(modelId: $0.modelId, variant: $0.variant)
+                    savedLookup[$0.id] ?? .defaults(providerID: $0.providerID, modelId: $0.modelId, variant: $0.variant)
                 }
                 let merged = Self.mergePricingRules(models: models, savedRules: savedRules)
 
@@ -661,7 +661,7 @@ struct SettingsView: View {
 
     private func resetAllPricing() {
         pricingRules = pricingRules.map {
-            var rule = ModelPricingRule.defaults(modelId: $0.modelId, variant: $0.variant)
+            var rule = ModelPricingRule.defaults(providerID: $0.providerID, modelId: $0.modelId, variant: $0.variant)
             rule.isEnabled = $0.isEnabled
             return rule
         }
@@ -673,10 +673,13 @@ struct SettingsView: View {
             merged[rule.pricingKey] = merged[rule.pricingKey] ?? rule
         }
         return merged.values.sorted {
-            if $0.modelId == $1.modelId {
-                return $0.variant < $1.variant
+            if $0.providerID == $1.providerID {
+                if $0.modelId == $1.modelId {
+                    return $0.variant < $1.variant
+                }
+                return $0.modelId < $1.modelId
             }
-            return $0.modelId < $1.modelId
+            return $0.providerID < $1.providerID
         }
     }
 

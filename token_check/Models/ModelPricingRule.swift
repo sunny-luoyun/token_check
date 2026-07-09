@@ -26,6 +26,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
     static let defaultOutputPricePerMillion = 2.0
     static let defaultReasoningPricePerMillion = 2.0
 
+    let providerID: String
     let modelId: String
     let variant: String
     var isEnabled: Bool = true
@@ -34,11 +35,13 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
     var id: String { pricingKey }
 
     var pricingKey: String {
-        "\(modelId)/\(variant)"
+        "\(providerID)/\(modelId)/\(variant)"
     }
 
     var displayName: String {
-        variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
+        let name = variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
+        if providerID == "opencode" { return name }
+        return "[\(providerID)] \(name)"
     }
 
     var usesDefaultPricing: Bool {
@@ -52,6 +55,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case providerID
         case modelId
         case variant
         case isEnabled
@@ -63,11 +67,13 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
     }
 
     init(
+        providerID: String,
         modelId: String,
         variant: String,
         isEnabled: Bool = true,
         periods: [PricingPeriod]
     ) {
+        self.providerID = providerID
         self.modelId = modelId
         self.variant = variant
         self.isEnabled = isEnabled
@@ -76,6 +82,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        providerID = try container.decodeIfPresent(String.self, forKey: .providerID) ?? "opencode"
         modelId = try container.decode(String.self, forKey: .modelId)
         variant = try container.decode(String.self, forKey: .variant)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
@@ -102,6 +109,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(providerID, forKey: .providerID)
         try container.encode(modelId, forKey: .modelId)
         try container.encode(variant, forKey: .variant)
         try container.encode(isEnabled, forKey: .isEnabled)
@@ -139,8 +147,9 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
                 period.reasoningPricePerMillion)
     }
 
-    static func defaults(modelId: String, variant: String) -> ModelPricingRule {
+    static func defaults(providerID: String, modelId: String, variant: String) -> ModelPricingRule {
         ModelPricingRule(
+            providerID: providerID,
             modelId: modelId,
             variant: variant,
             isEnabled: true,
@@ -173,16 +182,16 @@ enum ModelPricingStore {
         Dictionary(uniqueKeysWithValues: rules.map { ($0.pricingKey, $0) })
     }
 
-    static func rule(forModelId modelId: String, variant: String, rules: [ModelPricingRule]) -> ModelPricingRule {
-        lookup(from: rules)["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
+    static func rule(forModelId modelId: String, variant: String, providerID: String = "opencode", rules: [ModelPricingRule]) -> ModelPricingRule {
+        lookup(from: rules)["\(providerID)/\(modelId)/\(variant)"] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
     }
 
-    static func isEnabled(forModelId modelId: String, variant: String, rules: [ModelPricingRule]) -> Bool {
-        lookup(from: rules)["\(modelId)/\(variant)"]?.isEnabled ?? true
+    static func isEnabled(forModelId modelId: String, variant: String, providerID: String = "opencode", rules: [ModelPricingRule]) -> Bool {
+        lookup(from: rules)["\(providerID)/\(modelId)/\(variant)"]?.isEnabled ?? true
     }
 
-    static func price(forModelId modelId: String, variant: String, at date: Date, rules: [ModelPricingRule]) -> (inputMiss: Double, cacheHit: Double, output: Double, reasoning: Double) {
-        let model = lookup(from: rules)["\(modelId)/\(variant)"] ?? .defaults(modelId: modelId, variant: variant)
+    static func price(forModelId modelId: String, variant: String, providerID: String = "opencode", at date: Date, rules: [ModelPricingRule]) -> (inputMiss: Double, cacheHit: Double, output: Double, reasoning: Double) {
+        let model = lookup(from: rules)["\(providerID)/\(modelId)/\(variant)"] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
         return model.price(at: date)
     }
 }

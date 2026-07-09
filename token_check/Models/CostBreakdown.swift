@@ -2,6 +2,7 @@ import Foundation
 
 struct ModelCostBreakdown: Identifiable {
     let id: String
+    let providerID: String
     let modelId: String
     let variant: String
     let sessions: Int
@@ -15,7 +16,9 @@ struct ModelCostBreakdown: Identifiable {
     let resolvedOutputPrice: Double
 
     var displayName: String {
-        variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
+        let name = variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
+        if providerID == "opencode" { return name }
+        return "[\(providerID)] \(name)"
     }
 
     var missCost: Double {
@@ -38,6 +41,7 @@ struct ModelCostBreakdown: Identifiable {
 extension ModelCostBreakdown {
     init(
         id: String,
+        providerID: String,
         modelId: String,
         variant: String,
         sessions: Int,
@@ -50,6 +54,7 @@ extension ModelCostBreakdown {
     ) {
         let prices = pricing.price(at: referenceDate)
         self.id = id
+        self.providerID = providerID
         self.modelId = modelId
         self.variant = variant
         self.sessions = sessions

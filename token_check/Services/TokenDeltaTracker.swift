@@ -378,11 +378,13 @@ final class TokenDeltaTracker {
             guard let mc = dailyModelConsumption[dateKey], !mc.isEmpty else { continue }
             for (modelKey, tokens) in mc {
                 let parts = modelKey.split(separator: "/")
-                let modelId = String(parts[0])
-                let variant = parts.count > 1 ? String(parts[1]) : "default"
+                let providerID = String(parts[0])
+                let modelId = parts.count > 1 ? String(parts[1]) : "unknown"
+                let variant = parts.count > 2 ? String(parts[2]) : "default"
                 result.append(DailyModelUsage(
                     id: "\(dateKey)/\(modelKey)",
                     date: date,
+                    providerID: providerID,
                     modelId: modelId,
                     variant: variant,
                     inputTokens: tokens.tokensInput,
@@ -408,8 +410,9 @@ final class TokenDeltaTracker {
     private func extractModelKey(from info: [String: Any]) -> String? {
         guard let modelDict = info["model"] as? [String: Any],
               let modelId = modelDict["id"] as? String else { return nil }
+        let providerID = modelDict["providerID"] as? String ?? "opencode"
         let variant = modelDict["variant"] as? String ?? "default"
         let normalized = variant == "max" ? "default" : variant
-        return "\(modelId)/\(normalized)"
+        return "\(providerID)/\(modelId)/\(normalized)"
     }
 }

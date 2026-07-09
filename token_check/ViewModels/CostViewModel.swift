@@ -89,11 +89,13 @@ class CostViewModel: ObservableObject {
                 var breakdownMap: [String: ModelCostBreakdown] = [:]
                 for (modelKey, tokens) in eventMc {
                     let parts = modelKey.split(separator: "/")
-                    let modelId = String(parts[0])
-                    let variant = parts.count > 1 ? String(parts[1]) : "default"
-                    let pricing = pricingLookup[modelKey] ?? .defaults(modelId: modelId, variant: variant)
+                    let providerID = String(parts[0])
+                    let modelId = parts.count > 1 ? String(parts[1]) : "unknown"
+                    let variant = parts.count > 2 ? String(parts[2]) : "default"
+                    let pricing = pricingLookup[modelKey] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
                     breakdownMap[modelKey] = ModelCostBreakdown(
                         id: modelKey,
+                        providerID: providerID,
                         modelId: modelId,
                         variant: variant,
                         sessions: 0,
@@ -111,6 +113,7 @@ class CostViewModel: ObservableObject {
                         let prices = existing.pricing.price(at: referenceDate)
                         existing = ModelCostBreakdown(
                             id: existing.id,
+                            providerID: existing.providerID,
                             modelId: existing.modelId,
                             variant: existing.variant,
                             sessions: existing.sessions + item.sessions,
@@ -140,6 +143,7 @@ class CostViewModel: ObservableObject {
                     let prices = item.pricing.price(at: referenceDate)
                     return ModelCostBreakdown(
                         id: item.id,
+                        providerID: item.providerID,
                         modelId: item.modelId,
                         variant: item.variant,
                         sessions: item.sessions,

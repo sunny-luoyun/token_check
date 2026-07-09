@@ -436,7 +436,7 @@ struct StatsView: View {
             }
 
             TableColumn("模型") { item in
-                Text(item.modelId)
+                Text(item.displayModelName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
