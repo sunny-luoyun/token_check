@@ -641,6 +641,13 @@ struct LargeWidgetEntryView: View {
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)
                 Spacer()
+                if usage.subscriptionEnabled,
+                   let remaining = usage.subscriptionRemaining,
+                   let budget = usage.subscriptionBudget,
+                   let used = usage.subscriptionUsed,
+                   budget > 0 {
+                    subscriptionProgressView(used: used, budget: budget, remaining: remaining)
+                }
             }
             .padding(.horizontal, 6)
             .padding(.top, 4)
@@ -869,6 +876,26 @@ struct LargeWidgetEntryView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func subscriptionProgressView(used: Double, budget: Double, remaining: Double) -> some View {
+        let ratio = min(used / budget, 1.0)
+        let barColor: Color = ratio < 0.5 ? .green : (ratio < 0.8 ? .orange : .red)
+        let pct = Int(ratio * 100)
+        return HStack(spacing: 4) {
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.quaternary)
+                    .frame(width: 48, height: 8)
+                Capsule()
+                    .fill(barColor.gradient)
+                    .frame(width: max(4, 48 * ratio), height: 8)
+            }
+            Text("\(pct)%")
+                .font(.system(size: 10, weight: .bold).monospacedDigit())
+                .foregroundStyle(barColor)
+        }
+        .padding(.leading, 4)
     }
 }
 

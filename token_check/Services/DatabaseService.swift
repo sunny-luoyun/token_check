@@ -296,13 +296,13 @@ final class DatabaseService {
             let output = int(stmt, 4)
             let reasoning = int(stmt, 5)
             return (miss: miss, hit: hit, output: output, reasoning: reasoning, sessions: int(stmt, 6),
-                    missPrice: prices.inputMiss, hitPrice: prices.cacheHit, outputPrice: prices.output)
+                    missPrice: prices.inputMiss, hitPrice: prices.cacheHit, outputPrice: prices.output, reasoningPrice: prices.reasoning)
         }
         guard !rows.isEmpty else {
-            return CostSummary(totalMissTokens: 0, totalHitTokens: 0, totalOutputTokens: 0, totalReasoningTokens: 0, sessionCount: 0, missCost: 0, hitCost: 0, outputCost: 0)
+            return CostSummary(totalMissTokens: 0, totalHitTokens: 0, totalOutputTokens: 0, totalReasoningTokens: 0, sessionCount: 0, missCost: 0, hitCost: 0, outputCost: 0, reasoningCost: 0)
         }
         var totalMiss = 0, totalHit = 0, totalOutput = 0, totalReasoning = 0, totalSessions = 0
-        var missCost = 0.0, hitCost = 0.0, outputCost = 0.0
+        var missCost = 0.0, hitCost = 0.0, outputCost = 0.0, reasoningCost = 0.0
         for row in rows {
             totalMiss += row.miss
             totalHit += row.hit
@@ -312,8 +312,9 @@ final class DatabaseService {
             missCost += Double(row.miss) / 1_000_000 * row.missPrice
             hitCost += Double(row.hit) / 1_000_000 * row.hitPrice
             outputCost += Double(row.output) / 1_000_000 * row.outputPrice
+            reasoningCost += Double(row.reasoning) / 1_000_000 * row.reasoningPrice
         }
-        return CostSummary(totalMissTokens: totalMiss, totalHitTokens: totalHit, totalOutputTokens: totalOutput, totalReasoningTokens: totalReasoning, sessionCount: totalSessions, missCost: missCost, hitCost: hitCost, outputCost: outputCost)
+        return CostSummary(totalMissTokens: totalMiss, totalHitTokens: totalHit, totalOutputTokens: totalOutput, totalReasoningTokens: totalReasoning, sessionCount: totalSessions, missCost: missCost, hitCost: hitCost, outputCost: outputCost, reasoningCost: reasoningCost)
     }
 
     func fetchSessions(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, limit: Int = 100, offset: Int = 0) throws -> [Session] {

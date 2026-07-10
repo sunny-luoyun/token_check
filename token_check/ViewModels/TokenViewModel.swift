@@ -162,6 +162,14 @@ class TokenViewModel: ObservableObject {
                 self.logger.notice("Total refresh: no data, skipped")
                 return
             }
+
+            let subscriptionData = self.service.computeSubscriptionData()
+            if let sd = subscriptionData {
+                self.logger.notice("订阅: used=\(String(format: "%.2f", sd.used)), budget=\(String(format: "%.2f", sd.budget)), remaining=\(String(format: "%.2f", sd.remaining)), pct=\(String(format: "%.0f", sd.used / sd.budget * 100))%")
+            } else {
+                self.logger.notice("订阅: 未启用或数据异常")
+            }
+
             let widgetUsage = TodayUsage(
                 totalTokens: adjTotal,
                 inputTokens: adjInput,
@@ -176,7 +184,11 @@ class TokenViewModel: ObservableObject {
                 deletions: result.deletions,
                 files: result.files,
                 dailyTokens: result.dailyTokens,
-                todayCost: result.todayCost
+                todayCost: result.todayCost,
+                subscriptionRemaining: subscriptionData?.remaining,
+                subscriptionBudget: subscriptionData?.budget,
+                subscriptionUsed: subscriptionData?.used,
+                subscriptionEnabled: subscriptionData != nil
             )
 
             // 判断数据是否变化：对比总 token 数和 session 数，每 5 次强制完整刷新一次

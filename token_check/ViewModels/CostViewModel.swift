@@ -124,7 +124,8 @@ class CostViewModel: ObservableObject {
                             pricing: existing.pricing,
                             resolvedInputPrice: prices.inputMiss,
                             resolvedCacheHitPrice: prices.cacheHit,
-                            resolvedOutputPrice: prices.output
+                            resolvedOutputPrice: prices.output,
+                            resolvedReasoningPrice: prices.reasoning
                         )
                         breakdownMap[key] = existing
                     } else {
@@ -154,7 +155,8 @@ class CostViewModel: ObservableObject {
                         pricing: item.pricing,
                         resolvedInputPrice: prices.inputMiss,
                         resolvedCacheHitPrice: prices.cacheHit,
-                        resolvedOutputPrice: prices.output
+                        resolvedOutputPrice: prices.output,
+                        resolvedReasoningPrice: prices.reasoning
                     )
                 }
                 let useAdjusted = self.showRollback && rb.total > 0

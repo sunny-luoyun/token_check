@@ -16,6 +16,10 @@ struct SettingsView: View {
     @State private var cleanSuccess = false
     @AppStorage("widgetRefreshInterval", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var widgetRefreshInterval = 60
 
+    @AppStorage("subscriptionEnabled", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionEnabled = false
+    @AppStorage("subscriptionStartDay", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionStartDay = 15
+    @AppStorage("subscriptionBudget", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionBudget = 60.0
+
     @Environment(\.appTheme) var theme
 
     var body: some View {
@@ -213,6 +217,72 @@ struct SettingsView: View {
                 )
             } header: {
                 settingsHeader(icon: "square.grid.2x2.fill", title: "桌面小组件", color: .green)
+            }
+
+            Section {
+                HStack(spacing: 12) {
+                    Image(systemName: "creditcard.fill")
+                        .font(.title2)
+                        .foregroundStyle(.purple)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("开启订阅计费统计")
+                            .font(.subheadline.weight(.medium))
+                        Text("统计 opencode-go 提供商在订阅周期内的消耗")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $subscriptionEnabled)
+                        .labelsHidden()
+                }
+                if subscriptionEnabled {
+                    HStack(spacing: 12) {
+                        Image(systemName: "calendar.day.fill")
+                            .font(.title2)
+                            .foregroundStyle(.purple)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("扣费日")
+                                .font(.subheadline.weight(.medium))
+                            Text("每月扣费日，周期为一个自然月")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Picker("", selection: $subscriptionStartDay) {
+                            ForEach(1...28, id: \.self) { day in
+                                Text("每月 \(day) 日").tag(day)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 130)
+                    }
+                    HStack(spacing: 12) {
+                        Image(systemName: "dollarsign.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.purple)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("月度额度")
+                                .font(.subheadline.weight(.medium))
+                            Text("每月总预算额度")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        HStack(spacing: 4) {
+                            Text("$")
+                                .foregroundStyle(.secondary)
+                            TextField("", value: $subscriptionBudget, format: .number.precision(.fractionLength(2)))
+                                .textFieldStyle(.roundedBorder)
+                                .font(.caption.monospaced())
+                                .frame(width: 80)
+                        }
+                    }
+                }
+            } header: {
+                settingsHeader(icon: "chart.pie.fill", title: "订阅计费", color: .purple)
             }
 
             Section {

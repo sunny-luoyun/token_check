@@ -41,6 +41,10 @@ struct WidgetTodayUsage: Decodable {
     let files: Int
     let dailyTokens: [WidgetDayTokenData]
     let todayCost: Double
+    let subscriptionRemaining: Double?
+    let subscriptionBudget: Double?
+    let subscriptionUsed: Double?
+    let subscriptionEnabled: Bool
 
     enum CodingKeys: String, CodingKey {
         case totalTokens, inputTokens, outputTokens, cacheReadTokens
@@ -48,6 +52,7 @@ struct WidgetTodayUsage: Decodable {
         case sessionCount, messageCount, projectCount
         case additions, deletions, files
         case dailyTokens, todayCost
+        case subscriptionRemaining, subscriptionBudget, subscriptionUsed, subscriptionEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -66,6 +71,10 @@ struct WidgetTodayUsage: Decodable {
         files = try container.decodeIfPresent(Int.self, forKey: .files) ?? 0
         dailyTokens = try container.decode([WidgetDayTokenData].self, forKey: .dailyTokens)
         todayCost = try container.decode(Double.self, forKey: .todayCost)
+        subscriptionRemaining = try container.decodeIfPresent(Double.self, forKey: .subscriptionRemaining)
+        subscriptionBudget = try container.decodeIfPresent(Double.self, forKey: .subscriptionBudget)
+        subscriptionUsed = try container.decodeIfPresent(Double.self, forKey: .subscriptionUsed)
+        subscriptionEnabled = try container.decodeIfPresent(Bool.self, forKey: .subscriptionEnabled) ?? false
     }
 }
 

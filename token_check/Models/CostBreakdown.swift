@@ -14,6 +14,7 @@ struct ModelCostBreakdown: Identifiable {
     let resolvedInputPrice: Double
     let resolvedCacheHitPrice: Double
     let resolvedOutputPrice: Double
+    let resolvedReasoningPrice: Double
 
     var displayName: String {
         let name = variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
@@ -33,8 +34,12 @@ struct ModelCostBreakdown: Identifiable {
         Double(outputTokens) / 1_000_000 * resolvedOutputPrice
     }
 
+    var reasoningCost: Double {
+        Double(reasoningTokens) / 1_000_000 * resolvedReasoningPrice
+    }
+
     var totalCost: Double {
-        missCost + hitCost + outputCost
+        missCost + hitCost + outputCost + reasoningCost
     }
 }
 
@@ -66,6 +71,7 @@ extension ModelCostBreakdown {
         self.resolvedInputPrice = prices.inputMiss
         self.resolvedCacheHitPrice = prices.cacheHit
         self.resolvedOutputPrice = prices.output
+        self.resolvedReasoningPrice = prices.reasoning
     }
 }
 
@@ -78,9 +84,10 @@ struct CostSummary {
     let missCost: Double
     let hitCost: Double
     let outputCost: Double
+    let reasoningCost: Double
 
     var totalCost: Double {
-        missCost + hitCost + outputCost
+        missCost + hitCost + outputCost + reasoningCost
     }
 
     static func from(breakdown: [ModelCostBreakdown]) -> CostSummary {
@@ -92,7 +99,8 @@ struct CostSummary {
             sessionCount: breakdown.reduce(0) { $0 + $1.sessions },
             missCost: breakdown.reduce(0) { $0 + $1.missCost },
             hitCost: breakdown.reduce(0) { $0 + $1.hitCost },
-            outputCost: breakdown.reduce(0) { $0 + $1.outputCost }
+            outputCost: breakdown.reduce(0) { $0 + $1.outputCost },
+            reasoningCost: breakdown.reduce(0) { $0 + $1.reasoningCost }
         )
     }
 }

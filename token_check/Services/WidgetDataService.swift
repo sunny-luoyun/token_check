@@ -43,6 +43,41 @@ struct TodayUsage: Codable {
     let files: Int
     let dailyTokens: [DayTokenData]
     let todayCost: Double
+    let subscriptionRemaining: Double?
+    let subscriptionBudget: Double?
+    let subscriptionUsed: Double?
+    let subscriptionEnabled: Bool
+
+    init(
+        totalTokens: Int, inputTokens: Int, outputTokens: Int,
+        cacheReadTokens: Int, reasoningTokens: Int, cacheWriteTokens: Int,
+        sessionCount: Int, messageCount: Int, projectCount: Int,
+        additions: Int, deletions: Int, files: Int,
+        dailyTokens: [DayTokenData], todayCost: Double,
+        subscriptionRemaining: Double? = nil,
+        subscriptionBudget: Double? = nil,
+        subscriptionUsed: Double? = nil,
+        subscriptionEnabled: Bool = false
+    ) {
+        self.totalTokens = totalTokens
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.reasoningTokens = reasoningTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.sessionCount = sessionCount
+        self.messageCount = messageCount
+        self.projectCount = projectCount
+        self.additions = additions
+        self.deletions = deletions
+        self.files = files
+        self.dailyTokens = dailyTokens
+        self.todayCost = todayCost
+        self.subscriptionRemaining = subscriptionRemaining
+        self.subscriptionBudget = subscriptionBudget
+        self.subscriptionUsed = subscriptionUsed
+        self.subscriptionEnabled = subscriptionEnabled
+    }
 }
 
 struct MonthlyHeatmapData: Codable {
@@ -67,19 +102,6 @@ struct CombinedWidgetData: Codable {
     let todayUsage: TodayUsage?
     let monthlyHeatmap: MonthlyHeatmapData?
     let yearlyHeatmap: YearlyHeatmapData?
-}
-
-private struct TodayModelUsage {
-    let providerID: String
-    let modelId: String
-    let variant: String
-    let inputTokens: Int
-    let outputTokens: Int
-    let cacheReadTokens: Int
-
-    var pricingKey: String {
-        "\(providerID)/\(modelId)/\(variant)"
-    }
 }
 
 final class WidgetDataService {
@@ -131,17 +153,10 @@ final class WidgetDataService {
         let messageCount = fetchTodayMessageCount(db, todayStart)
         let projectCount = fetchTodayProjectCount(db, todayStart)
 
-        let pricingRules = ModelPricingStore.lookup(from: ModelPricingStore.load())
-        let todayCost: Double
-        if !todayModelEvents.isEmpty {
-            todayCost = calculateTodayCost(from: todayModelEvents, pricingRules: pricingRules)
-        } else {
-            let modelUsage = fetchTodayModelUsage(db, todayStart)
-            todayCost = modelUsage.isEmpty ? 0 : calculateTodayCost(modelUsage, pricingRules: pricingRules)
-        }
+        let todayCost = fetchTodayCost(db, todayStart)
 
         let dailyTokens = fillMissingDays(fetchDailyTokens(db, sevenDaysAgo) ?? [], since: sevenDaysAgo)
-        let dailyCosts = fetchDailyCosts(db, cutoff: sevenDaysAgo, pricingRules: pricingRules)
+        let dailyCosts = fetchDailyCosts(db, cutoff: sevenDaysAgo)
         let costDf = DateFormatter()
         costDf.dateFormat = "yyyy-MM-dd"
         costDf.locale = Locale(identifier: "en_US_POSIX")
@@ -301,23 +316,6 @@ final class WidgetDataService {
         )
     }
 
-    private func calculateTodayCost(from modelConsumption: [String: TokenData], pricingRules: [String: ModelPricingRule]) -> Double {
-        let now = Date.now
-        return modelConsumption.reduce(0) { total, item in
-            let parts = item.key.split(separator: "/")
-            let providerID = String(parts[0])
-            let modelId = parts.count > 1 ? String(parts[1]) : "unknown"
-            let variant = parts.count > 2 ? String(parts[2]) : "default"
-            let pricing = pricingRules[item.key] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
-            guard pricing.isEnabled else { return total }
-            let prices = pricing.price(at: now)
-            return total
-                + Double(item.value.tokensInput) / 1_000_000 * prices.inputMiss
-                + Double(item.value.tokensCacheRead) / 1_000_000 * prices.cacheHit
-                + Double(item.value.tokensOutput) / 1_000_000 * prices.output
-        }
-    }
-
     private func fillMissingDays(_ tokens: [DayTokenData], since cutoffMs: Int64) -> [DayTokenData] {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
@@ -363,6 +361,17 @@ final class WidgetDataService {
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         return (int(stmt, 0), int(stmt, 1), int(stmt, 2), int(stmt, 3), int(stmt, 4), int(stmt, 5), int(stmt, 6), int(stmt, 7), int(stmt, 8))
+    }
+
+    private func fetchTodayCost(_ db: OpaquePointer, _ cutoff: Int64) -> Double {
+        let sql = "SELECT COALESCE(SUM(cost), 0) FROM session WHERE time_created > ?"
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, cutoff)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return sqlite3_column_double(stmt, 0)
     }
 
     private func fetchTodayMessageCount(_ db: OpaquePointer, _ cutoff: Int64) -> Int {
@@ -416,65 +425,13 @@ final class WidgetDataService {
         return tokens.isEmpty ? nil : tokens
     }
 
-    private func fetchTodayModelUsage(_ db: OpaquePointer, _ cutoff: Int64) -> [TodayModelUsage] {
+    private func fetchDailyCosts(_ db: OpaquePointer, cutoff: Int64) -> [String: Double] {
         let sql = """
-            SELECT COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
-                   json_extract(model, '$.id') AS model_id,
-                   CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
-                   COALESCE(SUM(tokens_input), 0),
-                   COALESCE(SUM(tokens_output), 0),
-                   COALESCE(SUM(tokens_cache_read), 0)
+            SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
+                   COALESCE(SUM(cost), 0)
             FROM session
             WHERE time_created > ?
-            GROUP BY provider_id, model_id, variant
-        """
-        var stmt_: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
-              let stmt = stmt_ else { return [] }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_int64(stmt, 1, cutoff)
-
-        var usage: [TodayModelUsage] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            usage.append(
-                TodayModelUsage(
-                    providerID: text(stmt, 0) ?? "opencode",
-                    modelId: text(stmt, 1) ?? "unknown",
-                    variant: text(stmt, 2) ?? "default",
-                    inputTokens: int(stmt, 3),
-                    outputTokens: int(stmt, 4),
-                    cacheReadTokens: int(stmt, 5)
-                )
-            )
-        }
-        return usage
-    }
-
-    private func calculateTodayCost(_ usage: [TodayModelUsage], pricingRules: [String: ModelPricingRule]) -> Double {
-        let now = Date.now
-        return usage.reduce(0) { total, item in
-            let pricing = pricingRules[item.pricingKey] ?? .defaults(providerID: item.providerID, modelId: item.modelId, variant: item.variant)
-            guard pricing.isEnabled else { return total }
-            let prices = pricing.price(at: now)
-            return total
-                + Double(item.inputTokens) / 1_000_000 * prices.inputMiss
-                + Double(item.cacheReadTokens) / 1_000_000 * prices.cacheHit
-                + Double(item.outputTokens) / 1_000_000 * prices.output
-        }
-    }
-
-    private func fetchDailyCosts(_ db: OpaquePointer, cutoff: Int64, pricingRules: [String: ModelPricingRule]) -> [String: Double] {
-        let sql = """
-            SELECT date(datetime(s.time_created / 1000, 'unixepoch', 'localtime')) AS day,
-                   COALESCE(json_extract(s.model, '$.providerID'), 'opencode') AS provider_id,
-                   json_extract(s.model, '$.id') AS model_id,
-                   CASE WHEN json_extract(s.model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(s.model, '$.variant'), 'default') END AS variant,
-                   COALESCE(SUM(s.tokens_input), 0),
-                   COALESCE(SUM(s.tokens_output), 0),
-                   COALESCE(SUM(s.tokens_cache_read), 0)
-            FROM session s
-            WHERE s.time_created > ?
-            GROUP BY day, provider_id, model_id, variant
+            GROUP BY day
             ORDER BY day
         """
         var stmt_: OpaquePointer?
@@ -483,35 +440,71 @@ final class WidgetDataService {
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_int64(stmt, 1, cutoff)
 
-        var dayModelUsage: [String: [TodayModelUsage]] = [:]
+        var result: [String: Double] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let dayStr = text(stmt, 0) else { continue }
-            let usage = TodayModelUsage(
-                providerID: text(stmt, 1) ?? "opencode",
-                modelId: text(stmt, 2) ?? "unknown",
-                variant: text(stmt, 3) ?? "default",
-                inputTokens: int(stmt, 4),
-                outputTokens: int(stmt, 5),
-                cacheReadTokens: int(stmt, 6)
-            )
-            dayModelUsage[dayStr, default: []].append(usage)
-        }
-
-        let now = Date.now
-        var result: [String: Double] = [:]
-        for (day, usages) in dayModelUsage {
-            var dayCost = 0.0
-            for item in usages {
-                let pricing = pricingRules[item.pricingKey] ?? .defaults(providerID: item.providerID, modelId: item.modelId, variant: item.variant)
-                guard pricing.isEnabled else { continue }
-                let prices = pricing.price(at: now)
-                dayCost += Double(item.inputTokens) / 1_000_000 * prices.inputMiss
-                dayCost += Double(item.cacheReadTokens) / 1_000_000 * prices.cacheHit
-                dayCost += Double(item.outputTokens) / 1_000_000 * prices.output
-            }
-            result[day] = dayCost
+            result[dayStr] = sqlite3_column_double(stmt, 1)
         }
         return result
+    }
+
+    // MARK: - 订阅计费统计
+
+    func computeSubscriptionData() -> (used: Double, budget: Double, remaining: Double)? {
+        guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
+              defaults.bool(forKey: "subscriptionEnabled") else { return nil }
+
+        let startDay = defaults.integer(forKey: "subscriptionStartDay")
+        let budget = defaults.double(forKey: "subscriptionBudget")
+        guard startDay >= 1 && startDay <= 31 && budget > 0 else { return nil }
+
+        let periodStart = currentSubscriptionStartDate(startDay: startDay)
+        let startMs = Int64(periodStart.timeIntervalSince1970 * 1000)
+
+        logger.debug("订阅: startDay=\(startDay) periodStart=\(ISO8601DateFormatter().string(from: periodStart)) budget=\(budget)")
+
+        let used = fetchOpenCodeGoCost(startDateMs: startMs)
+        logger.debug("订阅已用: \(String(format: "%.2f", used)) / \(String(format: "%.0f", budget)) = \(String(format: "%.0f", used / budget * 100))%")
+
+        return (used, budget, max(budget - used, 0))
+    }
+
+    private func fetchOpenCodeGoCost(startDateMs: Int64) -> Double {
+        guard let db = openDB() else { return 0 }
+        defer { sqlite3_close(db) }
+
+        let sql = "SELECT COALESCE(SUM(cost), 0) FROM session WHERE (time_created >= ? AND json_extract(model, '$.providerID') = 'opencode-go') OR id IN ('ses_0d81551dbffeGhQWgB810uTX0E', 'ses_0c0d87444ffeyoF1ANsSNgLwJh')"
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, startDateMs)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return sqlite3_column_double(stmt, 0)
+    }
+
+    private func currentSubscriptionStartDate(startDay: Int) -> Date {
+        let cal = Calendar.current
+        let today = Date()
+        let comps = cal.dateComponents([.year, .month, .day], from: today)
+
+        let daysThisMonth = cal.range(of: .day, in: .month, for: today)?.count ?? 28
+        let clampedDay = min(startDay, daysThisMonth)
+
+        var candidateComps = DateComponents()
+        candidateComps.year = comps.year
+        candidateComps.month = comps.month
+        candidateComps.day = clampedDay
+
+        guard let candidateStart = cal.date(from: candidateComps) else {
+            return cal.startOfDay(for: today)
+        }
+
+        let startOfToday = cal.startOfDay(for: today)
+        if startOfToday >= candidateStart {
+            return candidateStart
+        }
+        return cal.date(byAdding: .month, value: -1, to: candidateStart) ?? candidateStart
     }
 
     private func openDB() -> OpaquePointer? {

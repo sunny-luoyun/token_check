@@ -168,6 +168,15 @@ struct CostDashboardView: View {
                 color: .blue
             )
             .transition(.scale.combined(with: .opacity))
+
+            StatCardView(
+                title: "推理",
+                value: formatTokens(summary.totalReasoningTokens),
+                subtitle: formatCost(summary.reasoningCost),
+                icon: "brain.head.profile.fill",
+                color: .purple
+            )
+            .transition(.scale.combined(with: .opacity))
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.1), value: summary.totalCost)
     }

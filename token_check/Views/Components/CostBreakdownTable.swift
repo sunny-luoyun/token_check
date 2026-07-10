@@ -50,6 +50,17 @@ struct CostBreakdownTable: View {
             }
             .width(120)
 
+            TableColumn("推理") { item in
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(formatTokens(item.reasoningTokens))
+                        .font(.caption.monospaced())
+                    Text(formatCost(item.reasoningCost))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.purple)
+                }
+            }
+            .width(120)
+
             TableColumn("总费用") { item in
                 Text(formatCost(item.totalCost))
                     .font(.caption.monospaced().bold())
