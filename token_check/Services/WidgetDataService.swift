@@ -208,7 +208,7 @@ final class WidgetDataService {
         let sql = """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
                    COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output + tokens_reasoning + tokens_cache_write), 0) AS total
-            FROM session
+            FROM \(sessionSource)
             WHERE time_created >= ? AND time_created < ?
             GROUP BY day
             ORDER BY day
@@ -273,7 +273,7 @@ final class WidgetDataService {
         let sql = """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
                    COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output + tokens_reasoning + tokens_cache_write), 0) AS total
-            FROM session
+            FROM \(sessionSource)
             WHERE time_created >= ? AND time_created < ?
             GROUP BY day
             ORDER BY day
@@ -350,7 +350,7 @@ final class WidgetDataService {
                    COALESCE(SUM(summary_deletions), 0),
                    COALESCE(SUM(summary_files), 0),
                    COUNT(*)
-            FROM session
+            FROM \(sessionSource)
             WHERE time_created > ?
         """
         var stmt_: OpaquePointer?
@@ -364,7 +364,7 @@ final class WidgetDataService {
     }
 
     private func fetchTodayCost(_ db: OpaquePointer, _ cutoff: Int64) -> Double {
-        let sql = "SELECT COALESCE(SUM(cost), 0) FROM session WHERE time_created > ?"
+        let sql = "SELECT COALESCE(SUM(cost), 0) FROM \(sessionSource) WHERE time_created > ?"
         var stmt_: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
               let stmt = stmt_ else { return 0 }
@@ -375,7 +375,7 @@ final class WidgetDataService {
     }
 
     private func fetchTodayMessageCount(_ db: OpaquePointer, _ cutoff: Int64) -> Int {
-        let sql = "SELECT COUNT(*) FROM message WHERE time_created > ?"
+        let sql = "SELECT COUNT(*) FROM \(messageSource) WHERE time_created > ?"
         var stmt_: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
               let stmt = stmt_ else { return 0 }
@@ -386,7 +386,7 @@ final class WidgetDataService {
     }
 
     private func fetchTodayProjectCount(_ db: OpaquePointer, _ cutoff: Int64) -> Int {
-        let sql = "SELECT COUNT(DISTINCT project_id) FROM session WHERE time_created > ?"
+        let sql = "SELECT COUNT(DISTINCT project_id) FROM \(sessionSource) WHERE time_created > ?"
         var stmt_: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
               let stmt = stmt_ else { return 0 }
@@ -400,7 +400,7 @@ final class WidgetDataService {
         let sql = """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
                    COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output + tokens_reasoning + tokens_cache_write), 0) AS total
-            FROM session
+            FROM \(sessionSource)
             WHERE time_created > ?
             GROUP BY day
             ORDER BY day
@@ -429,7 +429,7 @@ final class WidgetDataService {
         let sql = """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
                    COALESCE(SUM(cost), 0)
-            FROM session
+            FROM \(sessionSource)
             WHERE time_created > ?
             GROUP BY day
             ORDER BY day
@@ -473,7 +473,7 @@ final class WidgetDataService {
         guard let db = openDB() else { return 0 }
         defer { sqlite3_close(db) }
 
-        let sql = "SELECT COALESCE(SUM(cost), 0) FROM session WHERE (time_created >= ? AND json_extract(model, '$.providerID') = 'opencode-go') OR id IN ('ses_0d81551dbffeGhQWgB810uTX0E', 'ses_0c0d87444ffeyoF1ANsSNgLwJh')"
+        let sql = "SELECT COALESCE(SUM(cost), 0) FROM \(sessionSource) WHERE (time_created >= ? AND json_extract(model, '$.providerID') = 'opencode-go') OR id IN ('ses_0d81551dbffeGhQWgB810uTX0E', 'ses_0c0d87444ffeyoF1ANsSNgLwJh')"
         var stmt_: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
               let stmt = stmt_ else { return 0 }
@@ -507,14 +507,33 @@ final class WidgetDataService {
         return cal.date(byAdding: .month, value: -1, to: candidateStart) ?? candidateStart
     }
 
+    private var hasDeveco = false
+
     private func openDB() -> OpaquePointer? {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/opencode/opencode.db")
-            .path
         var db: OpaquePointer?
-        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, db != nil else { return nil }
+        guard sqlite3_open_v2(AppDatabase.opencodePath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, db != nil else { return nil }
         sqlite3_busy_timeout(db, 5000)
+
+        hasDeveco = false
+        if AppDatabase.devecoExists {
+            let attachSQL = "ATTACH DATABASE '\(AppDatabase.devecoPath)' AS deveco"
+            hasDeveco = (sqlite3_exec(db, attachSQL, nil, nil, nil) == SQLITE_OK)
+        }
         return db
+    }
+
+    private let sessionCols = "id, project_id, parent_id, slug, directory, title, version, share_url, summary_additions, summary_deletions, summary_files, summary_diffs, revert, permission, time_created, time_updated, time_compacting, time_archived, workspace_id, path, agent, model, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, metadata"
+
+    private var sessionSource: String {
+        hasDeveco
+            ? "(SELECT \(sessionCols) FROM main.session UNION ALL SELECT \(sessionCols) FROM deveco.session) AS session"
+            : "session"
+    }
+
+    private var messageSource: String {
+        hasDeveco
+            ? "(SELECT * FROM main.message UNION ALL SELECT * FROM deveco.message) AS message"
+            : "message"
     }
 
     private func todayStartMilliseconds() -> Int64 {

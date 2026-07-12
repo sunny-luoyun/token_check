@@ -3,16 +3,17 @@ import SQLite3
 
 final class DiskCleanupService {
     private let dbPath: String
+    private let devecoPath: String
 
     init() {
-        dbPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/opencode/opencode.db")
-            .path
+        dbPath = AppDatabase.opencodePath
+        devecoPath = AppDatabase.devecoPath
     }
 
     func fetchDiskUsage() throws -> DiskUsage {
-        let attrs = try FileManager.default.attributesOfItem(atPath: dbPath)
-        let fileSize = attrs[.size] as? Int64 ?? 0
+        let ocAttrs = try FileManager.default.attributesOfItem(atPath: dbPath)
+        let ocSize = ocAttrs[.size] as? Int64 ?? 0
+        let dcSize: Int64 = (try? FileManager.default.attributesOfItem(atPath: devecoPath))?[.size] as? Int64 ?? 0
 
         var ptr: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &ptr, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
@@ -22,18 +23,27 @@ final class DiskCleanupService {
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 5000)
 
-        let sessionCount = try scalarInt(db, "SELECT COUNT(*) FROM session")
-        let messageCount = try scalarInt(db, "SELECT COUNT(*) FROM message")
-        let partCount    = try scalarInt(db, "SELECT COUNT(*) FROM part")
-        let eventCount   = try scalarInt(db, "SELECT COUNT(*) FROM event")
+        let ocSessions = try scalarInt(db, "SELECT COUNT(*) FROM session")
+        let ocMessages = try scalarInt(db, "SELECT COUNT(*) FROM message")
+        let ocParts    = try scalarInt(db, "SELECT COUNT(*) FROM part")
+        let ocEvents   = try scalarInt(db, "SELECT COUNT(*) FROM event")
+
+        var dcSessions = 0, dcMessages = 0, dcParts = 0, dcEvents = 0
+        if AppDatabase.devecoExists, let dc = openDevecoDB() {
+            dcSessions = (try? scalarInt(dc, "SELECT COUNT(*) FROM session")) ?? 0
+            dcMessages = (try? scalarInt(dc, "SELECT COUNT(*) FROM message")) ?? 0
+            dcParts    = (try? scalarInt(dc, "SELECT COUNT(*) FROM part")) ?? 0
+            dcEvents   = (try? scalarInt(dc, "SELECT COUNT(*) FROM event")) ?? 0
+            sqlite3_close(dc)
+        }
 
         return DiskUsage(
-            dbFileSize: formatBytes(fileSize),
-            sessionCount: sessionCount,
-            messageCount: messageCount,
-            partCount: partCount,
-            eventCount: eventCount,
-            dbSizeBytes: fileSize
+            dbFileSize: formatBytes(ocSize + dcSize),
+            sessionCount: ocSessions + dcSessions,
+            messageCount: ocMessages + dcMessages,
+            partCount: ocParts + dcParts,
+            eventCount: ocEvents + dcEvents,
+            dbSizeBytes: ocSize + dcSize
         )
     }
 
@@ -48,6 +58,13 @@ final class DiskCleanupService {
 
         try exec(db, "DELETE FROM message")
         try exec(db, "VACUUM")
+    }
+
+    private func openDevecoDB() -> OpaquePointer? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(devecoPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return nil }
+        sqlite3_busy_timeout(db, 5000)
+        return db
     }
 
     // MARK: - Helpers

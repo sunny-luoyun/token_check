@@ -29,18 +29,36 @@ final class DatabaseService {
     }()
 
     internal var db: OpaquePointer?
+    private var hasDeveco = false
 
     init() throws {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/opencode/opencode.db")
-            .path
-
-        let rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil)
+        let rc = sqlite3_open_v2(AppDatabase.opencodePath, &db, SQLITE_OPEN_READONLY, nil)
         guard rc == SQLITE_OK, db != nil else {
-            throw DatabaseError.cannotOpen(path)
+            throw DatabaseError.cannotOpen(AppDatabase.opencodePath)
         }
         sqlite3_busy_timeout(db, 5000)
         sqlite3_exec(db, "PRAGMA journal_mode=WAL", nil, nil, nil)
+
+        let devecoExists = AppDatabase.devecoExists
+        if devecoExists {
+            let attachSQL = "ATTACH DATABASE '\(AppDatabase.devecoPath)' AS deveco"
+            let rc2 = sqlite3_exec(db, attachSQL, nil, nil, nil)
+            hasDeveco = (rc2 == SQLITE_OK)
+        }
+    }
+
+    private let sessionCols = "id, project_id, parent_id, slug, directory, title, version, share_url, summary_additions, summary_deletions, summary_files, summary_diffs, revert, permission, time_created, time_updated, time_compacting, time_archived, workspace_id, path, agent, model, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, metadata"
+
+    private var sessionSource: String {
+        hasDeveco
+            ? "(SELECT \(sessionCols) FROM main.session UNION ALL SELECT \(sessionCols) FROM deveco.session) AS session"
+            : "session"
+    }
+
+    private var sessionSourceAlias: String {
+        hasDeveco
+            ? "(SELECT \(sessionCols) FROM main.session UNION ALL SELECT \(sessionCols) FROM deveco.session) AS s"
+            : "session s"
     }
 
     deinit {
@@ -56,7 +74,7 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_cache_read), 0),
                    COALESCE(cost, 0),
                    COUNT(*)
-            FROM session
+            FROM \(sessionSource)
             """
         ) { stmt in
             TokenSummary(
@@ -82,7 +100,7 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_reasoning), 0),
                    COALESCE(SUM(tokens_cache_read), 0),
                    COALESCE(SUM(cost), 0)
-            FROM session
+            FROM \(sessionSource)
             GROUP BY provider_id, model_id, variant
             ORDER BY SUM(tokens_input) DESC
             """
@@ -116,7 +134,7 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_input), 0),
                    COALESCE(SUM(tokens_output), 0),
                    COALESCE(SUM(tokens_input + tokens_output), 0)
-            FROM session
+            FROM \(sessionSource)
             WHERE time_created > ?
             GROUP BY day
             ORDER BY day
@@ -168,7 +186,7 @@ final class DatabaseService {
                      COALESCE(SUM(tokens_cache_read), 0),
                      COALESCE(SUM(tokens_output), 0),
                      COALESCE(SUM(tokens_reasoning), 0)
-            FROM session
+            FROM \(sessionSource)
             \(whereClause)
             GROUP BY day, provider_id, model_id, variant
             ORDER BY day, model_id
@@ -203,7 +221,7 @@ final class DatabaseService {
             SELECT DISTINCT
                 strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) AS year,
                 strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) AS month
-            FROM session
+            FROM \(sessionSource)
             ORDER BY year DESC, month DESC
             """
         ) { stmt in
@@ -215,7 +233,7 @@ final class DatabaseService {
         try readAll(
             """
             SELECT DISTINCT strftime('%d', datetime(time_created / 1000, 'unixepoch', 'localtime'))
-            FROM session
+            FROM \(sessionSource)
             WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?
               AND strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?
             ORDER BY 1
@@ -238,8 +256,8 @@ final class DatabaseService {
                      COALESCE(SUM(tokens_input), 0) AS miss,
                      COALESCE(SUM(tokens_cache_read), 0) AS hit,
                      COALESCE(SUM(tokens_output), 0) AS output,
-                     COALESCE(SUM(tokens_reasoning), 0) AS reasoning
-            FROM session
+                       COALESCE(SUM(tokens_reasoning), 0) AS reasoning
+            FROM \(sessionSource)
             \(whereClause)
             GROUP BY provider_id, model_id, variant
             ORDER BY SUM(tokens_input) DESC
@@ -249,8 +267,8 @@ final class DatabaseService {
             let providerID = text(stmt, 0) ?? "opencode"
             let modelId = text(stmt, 1) ?? "unknown"
             let variant = text(stmt, 2) ?? "default"
-            let pricing = pricingLookup["\(providerID)/\(modelId)/\(variant)"] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
-            return ModelCostBreakdown(
+             let pricing = pricingLookup["\(providerID)/\(modelId)/\(variant)"] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
+             return ModelCostBreakdown(
                 id: "\(providerID)/\(modelId)/\(variant)",
                 providerID: providerID,
                 modelId: modelId,
@@ -280,7 +298,7 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_output), 0) AS output,
                    COALESCE(SUM(tokens_reasoning), 0) AS reasoning,
                    COUNT(*) AS sessions
-            FROM session
+            FROM \(sessionSource)
             \(whereClause)
             GROUP BY provider_id, model_id, variant
             """,
@@ -326,7 +344,7 @@ final class DatabaseService {
                    tokens_cache_read, tokens_cache_write,
                    cost, model, time_created,
                    json_extract(metadata, '$.project') AS project
-            FROM session
+            FROM \(sessionSource)
             \(whereClause)
             ORDER BY time_created DESC
             LIMIT ? OFFSET ?
@@ -369,7 +387,7 @@ final class DatabaseService {
                    COALESCE(SUM(tokens_cache_read), 0),
                    COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0),
                    COALESCE(SUM(cost), 0)
-            FROM session
+            FROM \(sessionSource)
             \(whereClause)
             GROUP BY agent
             ORDER BY COUNT(*) DESC
@@ -404,7 +422,7 @@ final class DatabaseService {
                    COALESCE(SUM(s.tokens_cache_read), 0),
                    COALESCE(SUM(s.tokens_input + s.tokens_output + s.tokens_reasoning + s.tokens_cache_read + s.tokens_cache_write), 0),
                    COALESCE(SUM(s.cost), 0)
-            FROM session s
+            FROM \(sessionSourceAlias)
             LEFT JOIN project p ON s.project_id = p.id
             \(whereClause)
             GROUP BY p.id
@@ -436,7 +454,7 @@ final class DatabaseService {
                    COALESCE(SUM(summary_files), 0),
                    COUNT(*),
                    COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0)
-            FROM session
+            FROM \(sessionSource)
             \(whereClause)
             """,
             parameters: params
@@ -468,7 +486,7 @@ final class DatabaseService {
                    COALESCE(s.summary_deletions, 0),
                    COALESCE(s.summary_files, 0),
                    COALESCE(s.tokens_input + s.tokens_output + s.tokens_reasoning + s.tokens_cache_read + s.tokens_cache_write, 0)
-            FROM session s
+            FROM \(sessionSourceAlias)
             \(fullWhere)
             ORDER BY s.time_created DESC
             LIMIT ? OFFSET ?
