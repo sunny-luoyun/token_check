@@ -516,6 +516,11 @@ final class WidgetDataService {
 
         hasDeveco = false
         if AppDatabase.devecoExists {
+            var tmp: OpaquePointer?
+            if sqlite3_open_v2(AppDatabase.devecoPath, &tmp, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
+                sqlite3_exec(tmp, "PRAGMA journal_mode=DELETE", nil, nil, nil)
+                sqlite3_close(tmp)
+            }
             let attachSQL = "ATTACH DATABASE '\(AppDatabase.devecoPath)' AS deveco"
             hasDeveco = (sqlite3_exec(db, attachSQL, nil, nil, nil) == SQLITE_OK)
         }

@@ -41,6 +41,12 @@ final class DatabaseService {
 
         let devecoExists = AppDatabase.devecoExists
         if devecoExists {
+            // 确保 deveco.db 不是 WAL 模式，否则 ATTACH 可能因缺失 WAL 文件失败
+            var tmp: OpaquePointer?
+            if sqlite3_open_v2(AppDatabase.devecoPath, &tmp, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
+                sqlite3_exec(tmp, "PRAGMA journal_mode=DELETE", nil, nil, nil)
+                sqlite3_close(tmp)
+            }
             let attachSQL = "ATTACH DATABASE '\(AppDatabase.devecoPath)' AS deveco"
             let rc2 = sqlite3_exec(db, attachSQL, nil, nil, nil)
             hasDeveco = (rc2 == SQLITE_OK)
