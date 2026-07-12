@@ -112,6 +112,10 @@ class TokenViewModel: ObservableObject {
             df.dateFormat = "yyyy-MM-dd"
             df.locale = Locale(identifier: "en_US_POSIX")
             let todayKey = df.string(from: Date())
+            let todayDCon = TokenDeltaTracker.shared.dailyConsumption[todayKey]
+            let todayDConTotal = todayDCon?.total ?? 0
+            let todayDConSessions = TokenDeltaTracker.shared.dailyModelConsumption[todayKey]?.count ?? 0
+            self.logger.notice("dailyConsumption today: total=\(todayDConTotal, privacy: .public), models=\(todayDConSessions, privacy: .public)")
             let todayRb = TokenDeltaTracker.shared.dailyRollbacks[todayKey] ?? .zero
             let hasRb = todayRb.total > 0
             let result = service.fetchTodayUsage()

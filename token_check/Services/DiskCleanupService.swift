@@ -95,6 +95,6 @@ final class DiskCleanupService {
             value /= 1024
             unitIdx += 1
         }
-        return String(format: "%.1f %@", value, units[unitIdx])
+        return String(format: "%.2f %@", value, units[unitIdx])
     }
 }
