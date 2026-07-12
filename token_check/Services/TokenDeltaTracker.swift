@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SQLite3
 
 @propertyWrapper
@@ -54,173 +55,190 @@ final class TokenDeltaTracker {
         if sqlite3_step(maxStmt) == SQLITE_ROW {
             maxRowId = sqlite3_column_int64(maxStmt, 0)
         }
-        let startRowId = lastProcessedRowId
-        guard maxRowId > startRowId else { return }
 
-        // 加载缓存的 session 状态
-        var sessionTokens = sessionTokenCache
-        var sessionModels = sessionModelCache
-        var pendingRollbacks = pendingRbCache
-        var pendingRollbackModels = pendingRbModelCache
-        var pendingRollbackTimestamps = pendingRbTimestampCache
+        if maxRowId > lastProcessedRowId {
+            let startRowId = lastProcessedRowId
 
-        // 加载已有累计值，增量追加
-        var rb = rollbackRecord
-        var sRb = sessionRollbacks
-        var mRb = modelRollbacks
-        var dRb = dailyRollbacks
-        var dMRb = dailyModelRollbacks
-        var dCon = dailyConsumption
-        var dMCon = dailyModelConsumption
+            // 加载缓存的 session 状态
+            var sessionTokens = sessionTokenCache
+            var sessionModels = sessionModelCache
+            var pendingRollbacks = pendingRbCache
+            var pendingRollbackModels = pendingRbModelCache
+            var pendingRollbackTimestamps = pendingRbTimestampCache
 
-        // 只处理新增的 event
-        let sql = """
-            SELECT rowid, aggregate_id, type, data
-            FROM event
-            WHERE rowid > ?
-            ORDER BY rowid
-        """
+            // 加载已有累计值，增量追加
+            var rb = rollbackRecord
+            var sRb = sessionRollbacks
+            var mRb = modelRollbacks
+            var dRb = dailyRollbacks
+            var dMRb = dailyModelRollbacks
+            var dCon = dailyConsumption
+            var dMCon = dailyModelConsumption
 
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            sqlite3_finalize(stmt)
-            return
-        }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_int64(stmt, 1, startRowId)
+            // 只处理新增的 event
+            let sql = """
+                SELECT rowid, aggregate_id, type, data
+                FROM event
+                WHERE rowid > ?
+                ORDER BY rowid
+            """
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            guard let aggregateId = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
-                  let type = sqlite3_column_text(stmt, 2).map({ String(cString: $0) }),
-                  type == "session.updated.1",
-                  let data = sqlite3_column_text(stmt, 3).map({ String(cString: $0) }),
-                  let jsonData = data.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                  let info = json["info"] as? [String: Any],
-                  let tokensDict = info["tokens"] as? [String: Any]
-            else { continue }
-
-            let tokens = TokenData(
-                tokensInput: (tokensDict["input"] as? Int) ?? 0,
-                tokensOutput: (tokensDict["output"] as? Int) ?? 0,
-                tokensReasoning: (tokensDict["reasoning"] as? Int) ?? 0,
-                tokensCacheRead: ((tokensDict["cache"] as? [String: Any])?["read"] as? Int) ?? 0,
-                tokensCacheWrite: ((tokensDict["cache"] as? [String: Any])?["write"] as? Int) ?? 0
-            )
-
-            let eventTimestamp: Int64 = {
-                if let timeObj = info["time"] as? [String: Any], let updated = timeObj["updated"] as? Int64 {
-                    return updated
-                }
-                return 0
-            }()
-
-            if let modelKey = extractModelKey(from: info) {
-                sessionModels[aggregateId] = modelKey
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                sqlite3_finalize(stmt)
+                return
             }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_int64(stmt, 1, startRowId)
 
-            let hasRevert = info["revert"] != nil
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let aggregateId = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
+                      let type = sqlite3_column_text(stmt, 2).map({ String(cString: $0) }),
+                      type == "session.updated.1",
+                      let data = sqlite3_column_text(stmt, 3).map({ String(cString: $0) }),
+                      let jsonData = data.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                      let info = json["info"] as? [String: Any],
+                      let tokensDict = info["tokens"] as? [String: Any]
+                else { continue }
 
-            let prevSessionState = sessionTokens[aggregateId]
-            if !hasRevert, eventTimestamp > 0 {
-                if let prev = prevSessionState {
-                    let delta = TokenData(
-                        tokensInput: max(0, tokens.tokensInput - prev.tokensInput),
-                        tokensOutput: max(0, tokens.tokensOutput - prev.tokensOutput),
-                        tokensReasoning: max(0, tokens.tokensReasoning - prev.tokensReasoning),
-                        tokensCacheRead: max(0, tokens.tokensCacheRead - prev.tokensCacheRead),
-                        tokensCacheWrite: max(0, tokens.tokensCacheWrite - prev.tokensCacheWrite)
-                    )
-                    if delta.total > 0 {
-                        let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                        dCon[dateKey] = (dCon[dateKey] ?? .zero) + delta
-                        if let modelKey = sessionModels[aggregateId] {
-                            var dm = dMCon[dateKey] ?? [:]
-                            dm[modelKey] = (dm[modelKey] ?? .zero) + delta
-                            dMCon[dateKey] = dm
-                        }
-                    }
-                } else {
-                    if tokens.total > 0 {
-                        let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                        dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokens
-                        if let modelKey = sessionModels[aggregateId] ?? extractModelKey(from: info) {
-                            var dm = dMCon[dateKey] ?? [:]
-                            dm[modelKey] = (dm[modelKey] ?? .zero) + tokens
-                            dMCon[dateKey] = dm
-                        }
-                    }
-                }
-            }
-
-            if hasRevert {
-                pendingRollbacks[aggregateId] = sessionTokens[aggregateId] ?? tokens
-                pendingRollbackModels[aggregateId] = sessionModels[aggregateId]
-                pendingRollbackTimestamps[aggregateId] = eventTimestamp
-                sessionTokens[aggregateId] = tokens
-            } else if let preTokens = pendingRollbacks[aggregateId] {
-                let diff = preTokens - tokens
-                let positiveRollback = TokenData(
-                    tokensInput: max(0, diff.tokensInput),
-                    tokensOutput: max(0, diff.tokensOutput),
-                    tokensReasoning: max(0, diff.tokensReasoning),
-                    tokensCacheRead: max(0, diff.tokensCacheRead),
-                    tokensCacheWrite: max(0, diff.tokensCacheWrite)
+                let tokens = TokenData(
+                    tokensInput: (tokensDict["input"] as? Int) ?? 0,
+                    tokensOutput: (tokensDict["output"] as? Int) ?? 0,
+                    tokensReasoning: (tokensDict["reasoning"] as? Int) ?? 0,
+                    tokensCacheRead: ((tokensDict["cache"] as? [String: Any])?["read"] as? Int) ?? 0,
+                    tokensCacheWrite: ((tokensDict["cache"] as? [String: Any])?["write"] as? Int) ?? 0
                 )
-                if positiveRollback.total > 0 {
-                    let rollbackTimestamp = pendingRollbackTimestamps[aggregateId] ?? eventTimestamp
-                    let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(rollbackTimestamp) / 1000))
 
-                    rb += positiveRollback
-                    sRb[aggregateId] = (sRb[aggregateId] ?? .zero) + positiveRollback
+                let eventTimestamp: Int64 = {
+                    if let timeObj = info["time"] as? [String: Any], let updated = timeObj["updated"] as? Int64 {
+                        return updated
+                    }
+                    return 0
+                }()
 
-                    var existing = dRb[dateKey] ?? .zero
-                    existing += positiveRollback
-                    dRb[dateKey] = existing
+                if let modelKey = extractModelKey(from: info) {
+                    sessionModels[aggregateId] = modelKey
+                }
 
-                    let modelKey = pendingRollbackModels[aggregateId] ?? sessionModels[aggregateId]
-                    if let mk = modelKey {
-                        mRb[mk] = (mRb[mk] ?? .zero) + positiveRollback
-                        var dailyModel = dMRb[dateKey] ?? [:]
-                        dailyModel[mk] = (dailyModel[mk] ?? .zero) + positiveRollback
-                        dMRb[dateKey] = dailyModel
+                let hasRevert = info["revert"] != nil
+
+                let prevSessionState = sessionTokens[aggregateId]
+                if !hasRevert, eventTimestamp > 0 {
+                    if let prev = prevSessionState {
+                        let delta = TokenData(
+                            tokensInput: max(0, tokens.tokensInput - prev.tokensInput),
+                            tokensOutput: max(0, tokens.tokensOutput - prev.tokensOutput),
+                            tokensReasoning: max(0, tokens.tokensReasoning - prev.tokensReasoning),
+                            tokensCacheRead: max(0, tokens.tokensCacheRead - prev.tokensCacheRead),
+                            tokensCacheWrite: max(0, tokens.tokensCacheWrite - prev.tokensCacheWrite)
+                        )
+                        if delta.total > 0 {
+                            let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                            dCon[dateKey] = (dCon[dateKey] ?? .zero) + delta
+                            if let modelKey = sessionModels[aggregateId] {
+                                var dm = dMCon[dateKey] ?? [:]
+                                dm[modelKey] = (dm[modelKey] ?? .zero) + delta
+                                dMCon[dateKey] = dm
+                            }
+                        }
+                    } else {
+                        if tokens.total > 0 {
+                            let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                            dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokens
+                            if let modelKey = sessionModels[aggregateId] ?? extractModelKey(from: info) {
+                                var dm = dMCon[dateKey] ?? [:]
+                                dm[modelKey] = (dm[modelKey] ?? .zero) + tokens
+                                dMCon[dateKey] = dm
+                            }
+                        }
                     }
                 }
-                pendingRollbacks.removeValue(forKey: aggregateId)
-                pendingRollbackModels.removeValue(forKey: aggregateId)
-                pendingRollbackTimestamps.removeValue(forKey: aggregateId)
-                sessionTokens[aggregateId] = tokens
-            } else {
-                sessionTokens[aggregateId] = tokens
+
+                if hasRevert {
+                    pendingRollbacks[aggregateId] = sessionTokens[aggregateId] ?? tokens
+                    pendingRollbackModels[aggregateId] = sessionModels[aggregateId]
+                    pendingRollbackTimestamps[aggregateId] = eventTimestamp
+                    sessionTokens[aggregateId] = tokens
+                } else if let preTokens = pendingRollbacks[aggregateId] {
+                    let diff = preTokens - tokens
+                    let positiveRollback = TokenData(
+                        tokensInput: max(0, diff.tokensInput),
+                        tokensOutput: max(0, diff.tokensOutput),
+                        tokensReasoning: max(0, diff.tokensReasoning),
+                        tokensCacheRead: max(0, diff.tokensCacheRead),
+                        tokensCacheWrite: max(0, diff.tokensCacheWrite)
+                    )
+                    if positiveRollback.total > 0 {
+                        let rollbackTimestamp = pendingRollbackTimestamps[aggregateId] ?? eventTimestamp
+                        let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(rollbackTimestamp) / 1000))
+
+                        rb += positiveRollback
+                        sRb[aggregateId] = (sRb[aggregateId] ?? .zero) + positiveRollback
+
+                        var existing = dRb[dateKey] ?? .zero
+                        existing += positiveRollback
+                        dRb[dateKey] = existing
+
+                        let modelKey = pendingRollbackModels[aggregateId] ?? sessionModels[aggregateId]
+                        if let mk = modelKey {
+                            mRb[mk] = (mRb[mk] ?? .zero) + positiveRollback
+                            var dailyModel = dMRb[dateKey] ?? [:]
+                            dailyModel[mk] = (dailyModel[mk] ?? .zero) + positiveRollback
+                            dMRb[dateKey] = dailyModel
+                        }
+                    }
+                    pendingRollbacks.removeValue(forKey: aggregateId)
+                    pendingRollbackModels.removeValue(forKey: aggregateId)
+                    pendingRollbackTimestamps.removeValue(forKey: aggregateId)
+                    sessionTokens[aggregateId] = tokens
+                } else {
+                    sessionTokens[aggregateId] = tokens
+                }
             }
+
+            // 写回缓存
+            sessionTokenCache = sessionTokens
+            sessionModelCache = sessionModels
+            pendingRbCache = pendingRollbacks
+            pendingRbModelCache = pendingRollbackModels
+            pendingRbTimestampCache = pendingRollbackTimestamps
+
+            // 写回累计值
+            rollbackRecord = rb
+            sessionRollbacks = sRb
+            modelRollbacks = mRb
+            dailyRollbacks = dRb
+            dailyModelRollbacks = dMRb
+            dailyConsumption = dCon
+            dailyModelConsumption = dMCon
+
+            lastProcessedRowId = maxRowId
         }
 
-        // 写回缓存
-        sessionTokenCache = sessionTokens
-        sessionModelCache = sessionModels
-        pendingRbCache = pendingRollbacks
-        pendingRbModelCache = pendingRollbackModels
-        pendingRbTimestampCache = pendingRollbackTimestamps
-
-        // 写回累计值
-        rollbackRecord = rb
-        sessionRollbacks = sRb
-        modelRollbacks = mRb
-        dailyRollbacks = dRb
-        dailyModelRollbacks = dMRb
-        dailyConsumption = dCon
-        dailyModelConsumption = dMCon
-
-        lastProcessedRowId = maxRowId
-
-        // 通过同一个 db 指针处理 deveco.event（deveco.db 已在 DatabaseService init 中 ATTACH）
-        refreshDevecoEvents(db: db)
+        // 独立打开 deveco.db 处理事件（不依赖 ATTACH，避免 WAL 快照问题）
+        // 无论 opencode 是否有新事件，deveco 事件都必须独立处理
+        refreshDevecoEvents()
     }
 
-    private func refreshDevecoEvents(db: OpaquePointer) {
+    private let logger = Logger(subsystem: "com.luoyun.tokencheck", category: "delta-tracker")
+
+    private func refreshDevecoEvents() {
+        var devoDb: OpaquePointer?
+        guard sqlite3_open_v2(AppDatabase.devecoPath, &devoDb, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let devoDb else {
+            logger.error("无法打开 deveco.db: \(AppDatabase.devecoPath)")
+            return
+        }
+        defer { sqlite3_close(devoDb) }
+        sqlite3_busy_timeout(devoDb, 3000)
+
         var maxStmt: OpaquePointer?
-        let sql = "SELECT COALESCE(MAX(rowid), 0) FROM deveco.event"
-        guard sqlite3_prepare_v2(db, sql, -1, &maxStmt, nil) == SQLITE_OK else { return }
+        let sql = "SELECT COALESCE(MAX(rowid), 0) FROM event"
+        guard sqlite3_prepare_v2(devoDb, sql, -1, &maxStmt, nil) == SQLITE_OK else {
+            logger.error("deveco.event 查询失败: \(String(cString: sqlite3_errmsg(devoDb)))")
+            return
+        }
         defer { sqlite3_finalize(maxStmt) }
         var maxRowId: Int64 = 0
         if sqlite3_step(maxStmt) == SQLITE_ROW {
@@ -245,13 +263,14 @@ final class TokenDeltaTracker {
 
         let eventSQL = """
             SELECT rowid, aggregate_id, type, data
-            FROM deveco.event
+            FROM event
             WHERE rowid > ?
             ORDER BY rowid
         """
 
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, eventSQL, -1, &stmt, nil) == SQLITE_OK else {
+        guard sqlite3_prepare_v2(devoDb, eventSQL, -1, &stmt, nil) == SQLITE_OK else {
+            logger.error("deveco.event 事件查询失败: \(String(cString: sqlite3_errmsg(devoDb)))")
             sqlite3_finalize(stmt)
             return
         }

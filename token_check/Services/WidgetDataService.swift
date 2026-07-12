@@ -121,9 +121,8 @@ final class WidgetDataService {
         df.locale = Locale(identifier: "en_US_POSIX")
         let todayKey = df.string(from: Date())
 
-        let todayFromEvents = TokenDeltaTracker.shared.dailyConsumption[todayKey]
-        let todayModelEvents = TokenDeltaTracker.shared.dailyModelConsumption[todayKey] ?? [:]
         let sessionRow = fetchTodayRow(db, todayStart)
+        let todayFromEvents = TokenDeltaTracker.shared.dailyConsumption[todayKey]
 
         let input: Int
         let output: Int
@@ -132,20 +131,22 @@ final class WidgetDataService {
         let cacheWrite: Int
         let sessionCount: Int
 
-        if let events = todayFromEvents {
-            input = events.tokensInput
-            output = events.tokensOutput
-            cacheRead = events.tokensCacheRead
-            reasoning = events.tokensReasoning
-            cacheWrite = events.tokensCacheWrite
-            sessionCount = sessionRow?.sessions ?? 0
-        } else if let row = sessionRow {
+        if let row = sessionRow {
+            // session 表通过 UNION ALL 包含两个数据库，且每次重新打开连接，始终最新
             input = row.input
             output = row.output
             cacheRead = row.cacheRead
             reasoning = row.reasoning
             cacheWrite = row.cacheWrite
             sessionCount = row.sessions
+        } else if let events = todayFromEvents {
+            // 兜底：使用事件表累计数据
+            input = events.tokensInput
+            output = events.tokensOutput
+            cacheRead = events.tokensCacheRead
+            reasoning = events.tokensReasoning
+            cacheWrite = events.tokensCacheWrite
+            sessionCount = 0
         } else {
             return nil
         }
@@ -162,10 +163,7 @@ final class WidgetDataService {
         costDf.locale = Locale(identifier: "en_US_POSIX")
         let dailyTokensWithCost = dailyTokens.map { day in
             let key = costDf.string(from: day.date)
-            var total = day.totalTokens
-            if let ev = TokenDeltaTracker.shared.dailyConsumption[key] {
-                total = ev.total
-            }
+            let total = day.totalTokens
             return DayTokenData(id: day.id, date: day.date, totalTokens: total, dailyCost: dailyCosts[key] ?? 0)
         }
 
@@ -516,13 +514,12 @@ final class WidgetDataService {
 
         hasDeveco = false
         if AppDatabase.devecoExists {
-            var tmp: OpaquePointer?
-            if sqlite3_open_v2(AppDatabase.devecoPath, &tmp, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
-                sqlite3_exec(tmp, "PRAGMA journal_mode=DELETE", nil, nil, nil)
-                sqlite3_close(tmp)
-            }
             let attachSQL = "ATTACH DATABASE '\(AppDatabase.devecoPath)' AS deveco"
-            hasDeveco = (sqlite3_exec(db, attachSQL, nil, nil, nil) == SQLITE_OK)
+            let rc = sqlite3_exec(db, attachSQL, nil, nil, nil)
+            hasDeveco = (rc == SQLITE_OK)
+            if !hasDeveco {
+                logger.error("ATTACH deveco.db 失败: \(String(cString: sqlite3_errmsg(db)))")
+            }
         }
         return db
     }
