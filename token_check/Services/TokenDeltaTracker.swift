@@ -23,6 +23,7 @@ final class TokenDeltaTracker {
     @Atomic var dailyModelRollbacks: [String: [String: TokenData]] = [:]
     @Atomic var dailyConsumption: [String: TokenData] = [:]
     @Atomic var dailyModelConsumption: [String: [String: TokenData]] = [:]
+    @Atomic var hourlyConsumption: [String: TokenData] = [:]
 
     // 增量处理缓存：记录上次处理到的 event rowid 和中间状态
     @Atomic var lastProcessedRowId: Int64 = 0
@@ -74,6 +75,7 @@ final class TokenDeltaTracker {
             var dMRb = dailyModelRollbacks
             var dCon = dailyConsumption
             var dMCon = dailyModelConsumption
+            var hCon = hourlyConsumption
 
             // 只处理新增的 event
             let sql = """
@@ -136,6 +138,9 @@ final class TokenDeltaTracker {
                         if delta.total > 0 {
                             let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
                             dCon[dateKey] = (dCon[dateKey] ?? .zero) + delta
+                            let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                            let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
+                            hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + delta
                             if let modelKey = sessionModels[aggregateId] {
                                 var dm = dMCon[dateKey] ?? [:]
                                 dm[modelKey] = (dm[modelKey] ?? .zero) + delta
@@ -146,6 +151,9 @@ final class TokenDeltaTracker {
                         if tokens.total > 0 {
                             let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
                             dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokens
+                            let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                            let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
+                            hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + tokens
                             if let modelKey = sessionModels[aggregateId] ?? extractModelKey(from: info) {
                                 var dm = dMCon[dateKey] ?? [:]
                                 dm[modelKey] = (dm[modelKey] ?? .zero) + tokens
@@ -212,6 +220,7 @@ final class TokenDeltaTracker {
             dailyModelRollbacks = dMRb
             dailyConsumption = dCon
             dailyModelConsumption = dMCon
+            hourlyConsumption = hCon
 
             lastProcessedRowId = maxRowId
         }
@@ -260,6 +269,7 @@ final class TokenDeltaTracker {
         var dMRb = dailyModelRollbacks
         var dCon = dailyConsumption
         var dMCon = dailyModelConsumption
+        var hCon = hourlyConsumption
 
         let eventSQL = """
             SELECT rowid, aggregate_id, type, data
@@ -322,6 +332,9 @@ final class TokenDeltaTracker {
                     if delta.total > 0 {
                         let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
                         dCon[dateKey] = (dCon[dateKey] ?? .zero) + delta
+                        let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                        let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
+                        hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + delta
                         if let modelKey = sessionModels[aggregateId] {
                             var dm = dMCon[dateKey] ?? [:]
                             dm[modelKey] = (dm[modelKey] ?? .zero) + delta
@@ -332,6 +345,9 @@ final class TokenDeltaTracker {
                     if tokens.total > 0 {
                         let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
                         dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokens
+                        let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                        let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
+                        hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + tokens
                         if let modelKey = sessionModels[aggregateId] ?? extractModelKey(from: info) {
                             var dm = dMCon[dateKey] ?? [:]
                             dm[modelKey] = (dm[modelKey] ?? .zero) + tokens
@@ -396,6 +412,7 @@ final class TokenDeltaTracker {
         dailyModelRollbacks = dMRb
         dailyConsumption = dCon
         dailyModelConsumption = dMCon
+        hourlyConsumption = hCon
 
         devecoLastProcessedRowId = maxRowId
     }

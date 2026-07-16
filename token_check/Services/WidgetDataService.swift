@@ -459,34 +459,16 @@ final class WidgetDataService {
     }
 
     private func fetchTodayHourlyUsage(_ db: OpaquePointer, _ todayStart: Int64) -> [HourlyData] {
-        let sql = """
-            SELECT CAST(strftime('%H', datetime(time_created / 1000, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
-                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output + tokens_reasoning + tokens_cache_write), 0) AS total,
-                   COALESCE(SUM(cost), 0) AS cost
-            FROM \(sessionSource)
-            WHERE time_created >= ?
-            GROUP BY hour
-            ORDER BY hour
-        """
-        var stmt_: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
-              let stmt = stmt_ else { return (0..<24).map { HourlyData(hour: $0, totalTokens: 0, cost: 0) } }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_int64(stmt, 1, todayStart)
-
-        var existing: [Int: (totalTokens: Int, cost: Double)] = [:]
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let hour = Int(sqlite3_column_int(stmt, 0))
-            let total = Int(sqlite3_column_int64(stmt, 1))
-            let cost = sqlite3_column_double(stmt, 2)
-            existing[hour] = (total, cost)
-        }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        let todayKey = df.string(from: Date())
+        let hourlyData = TokenDeltaTracker.shared.hourlyConsumption
 
         return (0..<24).map { hour in
-            if let data = existing[hour] {
-                return HourlyData(hour: hour, totalTokens: data.totalTokens, cost: data.cost)
-            }
-            return HourlyData(hour: hour, totalTokens: 0, cost: 0)
+            let key = "\(todayKey)/\(String(format: "%02d", hour))"
+            let total = hourlyData[key]?.total ?? 0
+            return HourlyData(hour: hour, totalTokens: total, cost: 0)
         }
     }
 
