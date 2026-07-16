@@ -221,6 +221,45 @@ struct SettingsView: View {
 
             Section {
                 HStack(spacing: 12) {
+                    Image(systemName: "sidebar.left")
+                        .font(.title2)
+                        .foregroundStyle(.indigo)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("大组件配置")
+                            .font(.subheadline.weight(.medium))
+                        Text("也可在桌面右键大组件 → 编辑小组件")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                LargeWidgetStatPicker(
+                    label: "大组件指标1",
+                    key: "large_widget_stat_1",
+                    defaultVal: "inputTokens"
+                )
+                LargeWidgetStatPicker(
+                    label: "大组件指标2",
+                    key: "large_widget_stat_2",
+                    defaultVal: "cacheReadTokens"
+                )
+                LargeWidgetStatPicker(
+                    label: "大组件指标3",
+                    key: "large_widget_stat_3",
+                    defaultVal: "outputTokens"
+                )
+                LargeWidgetStatPicker(
+                    label: "大组件指标4",
+                    key: "large_widget_stat_4",
+                    defaultVal: "sessionCount"
+                )
+                LargeWidgetChartRangePicker()
+            } header: {
+                settingsHeader(icon: "rectangle.split.3x1.fill", title: "大组件", color: .indigo)
+            }
+
+            Section {
+                HStack(spacing: 12) {
                     Image(systemName: "creditcard.fill")
                         .font(.title2)
                         .foregroundStyle(.purple)
@@ -847,6 +886,97 @@ private struct WidgetStatPicker: View {
                 .labelsHidden()
                 .onChange(of: selection) { _, newValue in
                     UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.set(newValue, forKey: key)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 大组件统计项选择器
+
+private struct LargeWidgetStatPicker: View {
+    let label: String
+    let key: String
+    let defaultVal: String
+    @State private var selection: String
+
+    init(label: String, key: String, defaultVal: String) {
+        self.label = label
+        self.key = key
+        self.defaultVal = defaultVal
+        _selection = State(initialValue: UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.string(forKey: key) ?? defaultVal)
+    }
+
+    private static let allStats: [(tag: String, display: String)] = [
+        ("inputTokens", "输入"),
+        ("outputTokens", "输出"),
+        ("reasoningTokens", "推理"),
+        ("cacheReadTokens", "缓存"),
+        ("cacheWriteTokens", "缓存写入"),
+        ("totalTokens", "总计"),
+        ("todayCost", "费用"),
+        ("sessionCount", "会话"),
+        ("messageCount", "消息"),
+        ("projectCount", "项目"),
+        ("additions", "新增"),
+        ("deletions", "删除"),
+        ("files", "文件"),
+        ("netAdditions", "净增"),
+    ]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "chart.bar.doc.horizontal.fill")
+                .font(.title2)
+                .foregroundStyle(.indigo)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                Picker("", selection: $selection) {
+                    ForEach(Self.allStats, id: \.tag) { stat in
+                        Text(stat.display).tag(stat.tag)
+                    }
+                }
+                .labelsHidden()
+                .onChange(of: selection) { _, newValue in
+                    UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.set(newValue, forKey: key)
+                }
+            }
+        }
+    }
+}
+
+private struct LargeWidgetChartRangePicker: View {
+    @State private var selection: String
+
+    init() {
+        _selection = State(initialValue: UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.string(forKey: "large_widget_chart_range") ?? "7d")
+    }
+
+    private static let allRanges: [(tag: String, display: String)] = [
+        ("7d", "近7天"),
+        ("30d", "近30天"),
+        ("1h", "当天分时"),
+    ]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "chart.bar.fill")
+                .font(.title2)
+                .foregroundStyle(.indigo)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("图表范围")
+                    .font(.subheadline.weight(.medium))
+                Picker("", selection: $selection) {
+                    ForEach(Self.allRanges, id: \.tag) { range in
+                        Text(range.display).tag(range.tag)
+                    }
+                }
+                .labelsHidden()
+                .onChange(of: selection) { _, newValue in
+                    UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.set(newValue, forKey: "large_widget_chart_range")
                 }
             }
         }

@@ -26,6 +26,12 @@ struct WidgetDayTokenData: Decodable {
     }
 }
 
+struct WidgetHourlyData: Decodable {
+    let hour: Int
+    let totalTokens: Int
+    let cost: Double
+}
+
 struct WidgetTodayUsage: Decodable {
     let totalTokens: Int
     let inputTokens: Int
@@ -40,6 +46,7 @@ struct WidgetTodayUsage: Decodable {
     let deletions: Int
     let files: Int
     let dailyTokens: [WidgetDayTokenData]
+    let hourlyTokens: [WidgetHourlyData]
     let todayCost: Double
     let subscriptionRemaining: Double?
     let subscriptionBudget: Double?
@@ -51,7 +58,7 @@ struct WidgetTodayUsage: Decodable {
         case reasoningTokens, cacheWriteTokens
         case sessionCount, messageCount, projectCount
         case additions, deletions, files
-        case dailyTokens, todayCost
+        case dailyTokens, hourlyTokens, todayCost
         case subscriptionRemaining, subscriptionBudget, subscriptionUsed, subscriptionEnabled
     }
 
@@ -70,6 +77,7 @@ struct WidgetTodayUsage: Decodable {
         deletions = try container.decodeIfPresent(Int.self, forKey: .deletions) ?? 0
         files = try container.decodeIfPresent(Int.self, forKey: .files) ?? 0
         dailyTokens = try container.decode([WidgetDayTokenData].self, forKey: .dailyTokens)
+        hourlyTokens = try container.decodeIfPresent([WidgetHourlyData].self, forKey: .hourlyTokens) ?? []
         todayCost = try container.decode(Double.self, forKey: .todayCost)
         subscriptionRemaining = try container.decodeIfPresent(Double.self, forKey: .subscriptionRemaining)
         subscriptionBudget = try container.decodeIfPresent(Double.self, forKey: .subscriptionBudget)

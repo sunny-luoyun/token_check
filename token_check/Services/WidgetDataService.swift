@@ -28,6 +28,12 @@ struct DayTokenData: Identifiable, Codable {
     }
 }
 
+struct HourlyData: Codable {
+    let hour: Int
+    let totalTokens: Int
+    let cost: Double
+}
+
 struct TodayUsage: Codable {
     let totalTokens: Int
     let inputTokens: Int
@@ -42,6 +48,7 @@ struct TodayUsage: Codable {
     let deletions: Int
     let files: Int
     let dailyTokens: [DayTokenData]
+    let hourlyTokens: [HourlyData]
     let todayCost: Double
     let subscriptionRemaining: Double?
     let subscriptionBudget: Double?
@@ -53,7 +60,8 @@ struct TodayUsage: Codable {
         cacheReadTokens: Int, reasoningTokens: Int, cacheWriteTokens: Int,
         sessionCount: Int, messageCount: Int, projectCount: Int,
         additions: Int, deletions: Int, files: Int,
-        dailyTokens: [DayTokenData], todayCost: Double,
+        dailyTokens: [DayTokenData], hourlyTokens: [HourlyData],
+        todayCost: Double,
         subscriptionRemaining: Double? = nil,
         subscriptionBudget: Double? = nil,
         subscriptionUsed: Double? = nil,
@@ -72,6 +80,7 @@ struct TodayUsage: Codable {
         self.deletions = deletions
         self.files = files
         self.dailyTokens = dailyTokens
+        self.hourlyTokens = hourlyTokens
         self.todayCost = todayCost
         self.subscriptionRemaining = subscriptionRemaining
         self.subscriptionBudget = subscriptionBudget
@@ -114,7 +123,7 @@ final class WidgetDataService {
         defer { self.logger.debug("fetchTodayUsage SQL: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms") }
 
         let todayStart = todayStartMilliseconds()
-        let sevenDaysAgo = todayStart - 6 * 86_400 * 1000
+        let thirtyDaysAgo = todayStart - 29 * 86_400 * 1000
 
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
@@ -156,8 +165,8 @@ final class WidgetDataService {
 
         let todayCost = fetchTodayCost(db, todayStart)
 
-        let dailyTokens = fillMissingDays(fetchDailyTokens(db, sevenDaysAgo) ?? [], since: sevenDaysAgo)
-        let dailyCosts = fetchDailyCosts(db, cutoff: sevenDaysAgo)
+        let dailyTokens = fillMissingDays(fetchDailyTokens(db, thirtyDaysAgo) ?? [], since: thirtyDaysAgo)
+        let dailyCosts = fetchDailyCosts(db, cutoff: thirtyDaysAgo)
         let costDf = DateFormatter()
         costDf.dateFormat = "yyyy-MM-dd"
         costDf.locale = Locale(identifier: "en_US_POSIX")
@@ -166,6 +175,8 @@ final class WidgetDataService {
             let total = day.totalTokens
             return DayTokenData(id: day.id, date: day.date, totalTokens: total, dailyCost: dailyCosts[key] ?? 0)
         }
+
+        let hourlyTokens = fetchTodayHourlyUsage(db, todayStart)
 
         return TodayUsage(
             totalTokens: input + output + reasoning + cacheRead + cacheWrite,
@@ -181,6 +192,7 @@ final class WidgetDataService {
             deletions: sessionRow?.deletions ?? 0,
             files: sessionRow?.files ?? 0,
             dailyTokens: dailyTokensWithCost,
+            hourlyTokens: hourlyTokens,
             todayCost: todayCost
         )
     }
@@ -444,6 +456,38 @@ final class WidgetDataService {
             result[dayStr] = sqlite3_column_double(stmt, 1)
         }
         return result
+    }
+
+    private func fetchTodayHourlyUsage(_ db: OpaquePointer, _ todayStart: Int64) -> [HourlyData] {
+        let sql = """
+            SELECT CAST(strftime('%H', datetime(time_created / 1000, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
+                   COALESCE(SUM(tokens_input + tokens_cache_read + tokens_output + tokens_reasoning + tokens_cache_write), 0) AS total,
+                   COALESCE(SUM(cost), 0) AS cost
+            FROM \(sessionSource)
+            WHERE time_created >= ?
+            GROUP BY hour
+            ORDER BY hour
+        """
+        var stmt_: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt_, nil) == SQLITE_OK,
+              let stmt = stmt_ else { return (0..<24).map { HourlyData(hour: $0, totalTokens: 0, cost: 0) } }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, todayStart)
+
+        var existing: [Int: (totalTokens: Int, cost: Double)] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let hour = Int(sqlite3_column_int(stmt, 0))
+            let total = Int(sqlite3_column_int64(stmt, 1))
+            let cost = sqlite3_column_double(stmt, 2)
+            existing[hour] = (total, cost)
+        }
+
+        return (0..<24).map { hour in
+            if let data = existing[hour] {
+                return HourlyData(hour: hour, totalTokens: data.totalTokens, cost: data.cost)
+            }
+            return HourlyData(hour: hour, totalTokens: 0, cost: 0)
+        }
     }
 
     // MARK: - 订阅计费统计

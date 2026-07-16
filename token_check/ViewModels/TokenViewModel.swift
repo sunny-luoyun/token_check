@@ -61,7 +61,7 @@ class TokenViewModel: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
         logger.notice("refreshTimer 已设置: interval=\(Int(interval), privacy: .public)s, fireDate=\(ISO8601DateFormatter().string(from: fireDate), privacy: .public)")
-        let v2Kinds = ["TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
+        let v2Kinds = ["TokenCheckLargeWidgetV3", "TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
         for kind in v2Kinds {
             WidgetCenter.shared.reloadTimelines(ofKind: kind)
         }
@@ -188,6 +188,7 @@ class TokenViewModel: ObservableObject {
                 deletions: result.deletions,
                 files: result.files,
                 dailyTokens: result.dailyTokens,
+                hourlyTokens: result.hourlyTokens,
                 todayCost: result.todayCost,
                 subscriptionRemaining: subscriptionData?.remaining,
                 subscriptionBudget: subscriptionData?.budget,
@@ -239,7 +240,7 @@ class TokenViewModel: ObservableObject {
                 let writeStart = CFAbsoluteTimeGetCurrent()
                 try? encoded.write(to: url, options: .atomic)
                 self.logger.notice("widget 文件写入完成 (\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - writeStart) * 1000), privacy: .public)ms), 刷新 V2 widget 种类")
-                let v2Kinds = ["TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
+                let v2Kinds = ["TokenCheckLargeWidgetV3", "TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
                 for kind in v2Kinds {
                     WidgetCenter.shared.reloadTimelines(ofKind: kind)
                 }
