@@ -143,7 +143,11 @@ struct SessionListView: View {
     }
 
     private func formatNumber(_ n: Int) -> String {
-        if n >= 1_000 {
+        if n >= 1_000_000_000 {
+            String(format: "%.1fB", Double(n) / 1_000_000_000)
+        } else if n >= 1_000_000 {
+            String(format: "%.1fM", Double(n) / 1_000_000)
+        } else if n >= 1_000 {
             String(format: "%.1fK", Double(n) / 1_000)
         } else {
             "\(n)"

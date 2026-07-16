@@ -529,7 +529,9 @@ struct StatsView: View {
     }
 
     private func formatNumber(_ n: Int) -> String {
-        if n >= 1_000_000 {
+        if n >= 1_000_000_000 {
+            String(format: "%.2fB", Double(n) / 1_000_000_000)
+        } else if n >= 1_000_000 {
             String(format: "%.2fM", Double(n) / 1_000_000)
         } else if n >= 1_000 {
             String(format: "%.1fK", Double(n) / 1_000)
