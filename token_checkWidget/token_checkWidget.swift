@@ -216,6 +216,16 @@ private func statColor(for key: String) -> Color {
     }
 }
 
+private func serverConnected() -> Bool {
+    UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.bool(forKey: "server_connected") ?? false
+}
+
+private func connectionIndicator() -> some View {
+    Circle()
+        .fill(serverConnected() ? Color.green : Color.red)
+        .frame(width: 8, height: 8)
+}
+
 struct TokenCheckWidgetEntryView: View {
     var entry: TokenTimelineProvider.Entry
 
@@ -243,6 +253,7 @@ struct TokenCheckWidgetEntryView: View {
                         .foregroundStyle(.secondary)
                         .padding(.leading, 4)
                     Spacer()
+                    connectionIndicator()
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 6)
@@ -437,6 +448,8 @@ struct MonthHeatmapEntryView: View {
             Text(formatTokens(data.totalTokens))
                 .font(.caption.monospaced().bold())
                 .foregroundStyle(.secondary)
+            connectionIndicator()
+                .padding(.leading, 4)
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
@@ -703,6 +716,7 @@ struct LargeWidgetEntryView: View {
                    budget > 0 {
                     subscriptionProgressView(used: used, budget: budget, remaining: remaining)
                 }
+                connectionIndicator()
             }
             .padding(.horizontal, 6)
             .padding(.top, 4)

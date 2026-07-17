@@ -22,6 +22,8 @@ class TokenViewModel: ObservableObject {
     private let logger = Logger(subsystem: "com.luoyun.tokencheck", category: "refresh")
     private let service = WidgetDataService()
     private var refreshTimer: Timer?
+    private var healthCheckTimer: Timer?
+    private var lastServerConnected: Bool?
     private var wakeObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
     private var cachedMonthlyHeatmap: MonthlyHeatmapData?
@@ -29,10 +31,12 @@ class TokenViewModel: ObservableObject {
     private var lastRefreshTotalTokens: Int = -1
     private var lastRefreshSessionCount: Int = 0
     private var forceFullRefreshCount: Int = 0
+    private var lastRefreshInterval: TimeInterval = 0
     private let widgetDataQueue = DispatchQueue(label: "com.luoyun.tokencheck.widget-data", qos: .utility)
 
     init() {
         setupPeriodicRefresh()
+        setupHealthCheck()
         setupWakeNotification()
         setupSettingsObserver()
         refresh(showLoading: false)
@@ -40,6 +44,7 @@ class TokenViewModel: ObservableObject {
 
     deinit {
         refreshTimer?.invalidate()
+        healthCheckTimer?.invalidate()
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
@@ -77,12 +82,41 @@ class TokenViewModel: ObservableObject {
     }
 
     private func setupSettingsObserver() {
-            settingsObserver = NotificationCenter.default
-                .addObserver(forName: UserDefaults.didChangeNotification,
-                             object: nil, queue: .main) { [weak self] _ in
-                    self?.setupPeriodicRefresh()
-                    self?.refresh(showLoading: false)
+        lastRefreshInterval = Self.readRefreshInterval()
+        settingsObserver = NotificationCenter.default
+            .addObserver(forName: UserDefaults.didChangeNotification,
+                         object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                let newInterval = Self.readRefreshInterval()
+                if newInterval != self.lastRefreshInterval {
+                    self.lastRefreshInterval = newInterval
+                    self.setupPeriodicRefresh()
+                    self.refresh(showLoading: false)
                 }
+            }
+    }
+
+    private func setupHealthCheck() {
+        let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck")
+        lastServerConnected = defaults?.bool(forKey: "server_connected")
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            self?.checkServerHealth()
+        }
+    }
+
+    private func checkServerHealth() {
+        let connected = service.checkCloudHealth()
+        guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else { return }
+        defaults.set(connected, forKey: "server_connected")
+        if connected != lastServerConnected {
+            lastServerConnected = connected
+            logger.notice("opencode 服务器状态变化: \(connected ? "已连接" : "已断开", privacy: .public)，立即刷新 widget")
+            let v2Kinds = ["TokenCheckLargeWidgetV3", "TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
+            for kind in v2Kinds {
+                WidgetCenter.shared.reloadTimelines(ofKind: kind)
+            }
+        }
     }
 
     static func readRefreshInterval() -> TimeInterval {

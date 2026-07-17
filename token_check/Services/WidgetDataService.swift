@@ -115,6 +115,29 @@ struct CombinedWidgetData: Codable {
 
 final class WidgetDataService {
     private let logger = Logger(subsystem: "com.luoyun.tokencheck", category: "widget-data")
+    private let healthSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 3
+        config.timeoutIntervalForResource = 3
+        return URLSession(configuration: config)
+    }()
+
+    func checkCloudHealth() -> Bool {
+        let url = URL(string: "https://opencode.ai")!
+        let semaphore = DispatchSemaphore(value: 0)
+        var healthy = false
+        let task = healthSession.dataTask(with: url) { _, response, error in
+            if error == nil,
+               let httpResponse = response as? HTTPURLResponse,
+               httpResponse.statusCode == 200 {
+                healthy = true
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + 3)
+        return healthy
+    }
 
     func fetchTodayUsage() -> TodayUsage? {
         let t0 = CFAbsoluteTimeGetCurrent()
