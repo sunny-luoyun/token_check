@@ -123,7 +123,7 @@ final class WidgetDataService {
     }()
 
     func checkCloudHealth() -> Bool {
-        let url = URL(string: "https://opencode.ai")!
+        let url = URL(string: "https://opencode.ai/zen/go/v1/models")!
         let semaphore = DispatchSemaphore(value: 0)
         var healthy = false
         let task = healthSession.dataTask(with: url) { _, response, error in
