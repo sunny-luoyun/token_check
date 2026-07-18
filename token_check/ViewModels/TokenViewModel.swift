@@ -279,6 +279,11 @@ class TokenViewModel: ObservableObject {
                     WidgetCenter.shared.reloadTimelines(ofKind: kind)
                 }
                 self.logger.notice("已刷新 \(v2Kinds.count, privacy: .public) 个 V2 widget: \(v2Kinds.joined(separator: ", "), privacy: .public)")
+
+                let clashService = ClashTrafficService()
+                clashService.fetchAndWriteTrafficData()
+                WidgetCenter.shared.reloadTimelines(ofKind: "ClashTrafficWidget")
+                self.logger.notice("Clash 流量数据已更新, ClashTrafficWidget 已刷新")
             }
             let totalElapsed = CFAbsoluteTimeGetCurrent() - t0
             self.logger.notice("Total refresh: \(String(format: "%.1f", totalElapsed * 1000), privacy: .public)ms")

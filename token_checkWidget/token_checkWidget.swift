@@ -1054,3 +1054,148 @@ struct TokenCheckLargeWidget: Widget {
         .supportedFamilies([.systemLarge])
     }
 }
+
+// MARK: - Clash 订阅流量小组件
+
+private func readClashTrafficData() -> ClashTrafficData? {
+    guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") else { return nil }
+    let url = container.appendingPathComponent("clash_traffic.json")
+    guard let data = try? Data(contentsOf: url),
+          let result = try? JSONDecoder().decode(ClashTrafficData.self, from: data),
+          result.isValid else { return nil }
+    return result
+}
+
+struct ClashTrafficEntry: TimelineEntry {
+    let date: Date
+    let data: ClashTrafficData?
+}
+
+struct ClashTrafficTimelineProvider: TimelineProvider {
+    func placeholder(in context: Context) -> ClashTrafficEntry {
+        ClashTrafficEntry(date: Date(), data: nil)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (ClashTrafficEntry) -> Void) {
+        completion(ClashTrafficEntry(date: Date(), data: readClashTrafficData()))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<ClashTrafficEntry>) -> Void) {
+        let data = readClashTrafficData()
+        let entry = ClashTrafficEntry(date: Date(), data: data)
+        let nextUpdate = nextAlignedRefreshDate()
+        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
+        completion(timeline)
+    }
+}
+
+private func formatTraffic(_ bytes: Int64) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .file
+    formatter.includesUnit = true
+    formatter.isAdaptive = true
+    return formatter.string(fromByteCount: bytes)
+}
+
+private func formatExpire(_ timestamp: Int64) -> String {
+    guard timestamp > 0 else { return "不限" }
+    let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+    let df = DateFormatter()
+    df.dateFormat = "yyyy-MM-dd"
+    return df.string(from: date)
+}
+
+struct ClashTrafficEntryView: View {
+    var entry: ClashTrafficEntry
+
+    var body: some View {
+        if let data = entry.data {
+            VStack(spacing: 4) {
+                HStack {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .foregroundStyle(.blue)
+                        .font(.headline)
+                    Text(data.label)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("\(Int(data.progress * 100))%")
+                        .font(.title3.monospacedDigit().bold())
+                        .foregroundStyle(progressColor(data.progress))
+                }
+
+                ProgressView(value: data.progress)
+                    .tint(progressColor(data.progress))
+                    .padding(.vertical, 2)
+
+                HStack {
+                    Text("\(formatTraffic(data.used)) / \(formatTraffic(data.total))")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(progressColor(data.progress))
+                    Text("剩余 ")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    + Text(formatTraffic(data.remaining))
+                        .font(.subheadline.monospaced().bold())
+                        .foregroundStyle(progressColor(data.progress))
+                    Spacer()
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text("\(formatExpire(data.expire)) 到期")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+
+                Text("更新于 \(entry.date, style: .time)")
+                    .font(.system(size: 7))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .containerBackground(.regularMaterial, for: .widget)
+        } else {
+            VStack(spacing: 6) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.title)
+                    .foregroundStyle(.blue)
+                Text("Clash 数据")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("等待数据...")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .containerBackground(.regularMaterial, for: .widget)
+        }
+    }
+
+    private func progressColor(_ p: Double) -> Color {
+        if p < 0.5 { return .green }
+        if p < 0.8 { return .orange }
+        return .red
+    }
+}
+
+struct ClashTrafficWidget: Widget {
+    let kind: String = "ClashTrafficWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: ClashTrafficTimelineProvider()) { entry in
+            ClashTrafficEntryView(entry: entry)
+        }
+        .configurationDisplayName("Clash 流量")
+        .description("显示 Clash 订阅的流量使用情况和到期时间。")
+        .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}

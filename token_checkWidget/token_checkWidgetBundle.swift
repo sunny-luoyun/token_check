@@ -7,5 +7,6 @@ struct TokenCheckWidgetBundle: WidgetBundle {
         TokenCheckWidget()
         TokenCheckSmallWidget()
         TokenCheckLargeWidget()
+        ClashTrafficWidget()
     }
 }
