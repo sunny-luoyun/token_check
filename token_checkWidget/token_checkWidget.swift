@@ -1089,12 +1089,15 @@ struct ClashTrafficTimelineProvider: TimelineProvider {
     }
 }
 
-private func formatTraffic(_ bytes: Int64) -> String {
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .file
-    formatter.includesUnit = true
-    formatter.isAdaptive = true
-    return formatter.string(fromByteCount: bytes)
+private func formatTraffic(_ bytes: Int64, _ decimal: Int = 4) -> String {
+    let units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    var value = Double(bytes)
+    var unitIndex = 0
+    while abs(value) >= 1024 && unitIndex < units.count - 1 {
+        value /= 1024
+        unitIndex += 1
+    }
+    return String(format: "%.\(decimal)f %@", value, units[unitIndex])
 }
 
 private func formatExpire(_ timestamp: Int64) -> String {
@@ -1129,7 +1132,7 @@ struct ClashTrafficEntryView: View {
                     .padding(.vertical, 2)
 
                 HStack {
-                    Text("\(formatTraffic(data.used)) / \(formatTraffic(data.total))")
+                    Text("\(formatTraffic(data.used)) / \(formatTraffic(data.total, 0))")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                     Spacer()
