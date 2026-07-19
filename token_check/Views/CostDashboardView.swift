@@ -130,9 +130,7 @@ struct CostDashboardView: View {
     }
 
     private func summaryCards(summary: CostSummary) -> some View {
-        LazyVGrid(columns: [
-            GridItem(.adaptive(minimum: 150), spacing: 12)
-        ], spacing: 12) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 12) {
             StatCardView(
                 title: "总费用",
                 value: formatCost(summary.totalCost),

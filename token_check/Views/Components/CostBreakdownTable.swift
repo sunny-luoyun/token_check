@@ -9,13 +9,14 @@ struct CostBreakdownTable: View {
                 Text(item.displayName)
                     .font(.caption.weight(.medium))
             }
+            .width(min: 100, ideal: 200, max: 400)
 
             TableColumn("会话数") { item in
                 Text("\(item.sessions)")
                     .font(.caption.monospaced())
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .width(65)
+            .width(min: 50, ideal: 65, max: 100)
 
             TableColumn("输入（未命中）") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -26,7 +27,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.orange)
                 }
             }
-            .width(120)
+            .width(min: 80, ideal: 130, max: 200)
 
             TableColumn("缓存命中") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -37,7 +38,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.green)
                 }
             }
-            .width(120)
+            .width(min: 80, ideal: 130, max: 200)
 
             TableColumn("输出") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -48,7 +49,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.blue)
                 }
             }
-            .width(120)
+            .width(min: 80, ideal: 130, max: 200)
 
             TableColumn("推理") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -59,7 +60,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.purple)
                 }
             }
-            .width(120)
+            .width(min: 80, ideal: 130, max: 200)
 
             TableColumn("总费用") { item in
                 Text(formatCost(item.totalCost))
@@ -67,7 +68,7 @@ struct CostBreakdownTable: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .foregroundStyle(item.totalCost > 0 ? .primary : .secondary)
             }
-            .width(90)
+            .width(min: 70, ideal: 100, max: 150)
         }
     }
 
