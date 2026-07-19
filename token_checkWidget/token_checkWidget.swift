@@ -99,12 +99,20 @@ struct TokenWidgetEntry: TimelineEntry {
 }
 
 private func readUsageFromAppGroup() -> WidgetTodayUsage? {
-    // 优先读单一数据文件
     if let combined = readWidgetData(), let usage = combined.todayUsage {
+        WidgetDataCache.usage = usage
+        if let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
+           let data = try? JSONEncoder().encode(usage) {
+            defaults.set(data, forKey: "widget_today_usage_backup")
+        }
+        return usage
+    }
+    if let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
+       let data = defaults.data(forKey: "widget_today_usage_backup"),
+       let usage = try? JSONDecoder().decode(WidgetTodayUsage.self, from: data) {
         WidgetDataCache.usage = usage
         return usage
     }
-    // 回退读 UserDefaults（旧数据）
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
           let data = defaults.data(forKey: "today_usage"),
           let usage = try? JSONDecoder().decode(WidgetTodayUsage.self, from: data)
@@ -355,12 +363,20 @@ struct HeatmapWidgetEntry: TimelineEntry {
 }
 
 private func readHeatmapFromAppGroup() -> WidgetMonthlyHeatmapData? {
-    // 优先读单一数据文件
     if let combined = readWidgetData(), let heatmap = combined.monthlyHeatmap {
+        WidgetDataCache.heatmap = heatmap
+        if let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
+           let data = try? JSONEncoder().encode(heatmap) {
+            defaults.set(data, forKey: "widget_heatmap_backup")
+        }
+        return heatmap
+    }
+    if let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
+       let data = defaults.data(forKey: "widget_heatmap_backup"),
+       let heatmap = try? JSONDecoder().decode(WidgetMonthlyHeatmapData.self, from: data) {
         WidgetDataCache.heatmap = heatmap
         return heatmap
     }
-    // 回退读 UserDefaults（旧数据）
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
           let data = defaults.data(forKey: "monthly_heatmap"),
           let heatmap = try? JSONDecoder().decode(WidgetMonthlyHeatmapData.self, from: data)
@@ -545,7 +561,17 @@ struct TokenCheckSmallWidget: Widget {
 private func readYearlyHeatmapFromAppGroup() -> WidgetYearlyHeatmapData? {
     if let combined = readWidgetData(), let yearly = combined.yearlyHeatmap {
         WidgetDataCache.yearly = yearly
+        if let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
+           let data = try? JSONEncoder().encode(yearly) {
+            defaults.set(data, forKey: "widget_yearly_heatmap_backup")
+        }
         return yearly
+    }
+    if let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
+       let data = defaults.data(forKey: "widget_yearly_heatmap_backup"),
+       let result = try? JSONDecoder().decode(WidgetYearlyHeatmapData.self, from: data) {
+        WidgetDataCache.yearly = result
+        return result
     }
     if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") {
         let url = container.appendingPathComponent("yearly_heatmap.json")

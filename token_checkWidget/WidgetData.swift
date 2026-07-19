@@ -1,6 +1,6 @@
 import Foundation
 
-struct WidgetDayTokenData: Decodable {
+struct WidgetDayTokenData: Codable {
     let id: String
     let date: Date
     let totalTokens: Int
@@ -24,15 +24,23 @@ struct WidgetDayTokenData: Decodable {
         totalTokens = try container.decode(Int.self, forKey: .totalTokens)
         dailyCost = try container.decodeIfPresent(Double.self, forKey: .dailyCost) ?? 0
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(date, forKey: .date)
+        try container.encode(totalTokens, forKey: .totalTokens)
+        try container.encode(dailyCost, forKey: .dailyCost)
+    }
 }
 
-struct WidgetHourlyData: Decodable {
+struct WidgetHourlyData: Codable {
     let hour: Int
     let totalTokens: Int
     let cost: Double
 }
 
-struct WidgetTodayUsage: Decodable {
+struct WidgetTodayUsage: Codable {
     let totalTokens: Int
     let inputTokens: Int
     let outputTokens: Int
@@ -84,9 +92,32 @@ struct WidgetTodayUsage: Decodable {
         subscriptionUsed = try container.decodeIfPresent(Double.self, forKey: .subscriptionUsed)
         subscriptionEnabled = try container.decodeIfPresent(Bool.self, forKey: .subscriptionEnabled) ?? false
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(totalTokens, forKey: .totalTokens)
+        try container.encode(inputTokens, forKey: .inputTokens)
+        try container.encode(outputTokens, forKey: .outputTokens)
+        try container.encode(cacheReadTokens, forKey: .cacheReadTokens)
+        try container.encode(reasoningTokens, forKey: .reasoningTokens)
+        try container.encode(cacheWriteTokens, forKey: .cacheWriteTokens)
+        try container.encode(sessionCount, forKey: .sessionCount)
+        try container.encode(messageCount, forKey: .messageCount)
+        try container.encode(projectCount, forKey: .projectCount)
+        try container.encode(additions, forKey: .additions)
+        try container.encode(deletions, forKey: .deletions)
+        try container.encode(files, forKey: .files)
+        try container.encode(dailyTokens, forKey: .dailyTokens)
+        try container.encode(hourlyTokens, forKey: .hourlyTokens)
+        try container.encode(todayCost, forKey: .todayCost)
+        try container.encodeIfPresent(subscriptionRemaining, forKey: .subscriptionRemaining)
+        try container.encodeIfPresent(subscriptionBudget, forKey: .subscriptionBudget)
+        try container.encodeIfPresent(subscriptionUsed, forKey: .subscriptionUsed)
+        try container.encode(subscriptionEnabled, forKey: .subscriptionEnabled)
+    }
 }
 
-struct WidgetMonthlyHeatmapData: Decodable {
+struct WidgetMonthlyHeatmapData: Codable {
     let year: Int
     let month: Int
     let totalTokens: Int
@@ -95,7 +126,7 @@ struct WidgetMonthlyHeatmapData: Decodable {
     let firstWeekday: Int
 }
 
-struct WidgetYearlyHeatmapData: Decodable {
+struct WidgetYearlyHeatmapData: Codable {
     let year: Int
     let totalTokens: Int
     let avgDailyTokens: Int
@@ -104,7 +135,7 @@ struct WidgetYearlyHeatmapData: Decodable {
     let totalDays: Int
 }
 
-struct CombinedWidgetData: Decodable {
+struct CombinedWidgetData: Codable {
     let todayUsage: WidgetTodayUsage?
     let monthlyHeatmap: WidgetMonthlyHeatmapData?
     let yearlyHeatmap: WidgetYearlyHeatmapData?

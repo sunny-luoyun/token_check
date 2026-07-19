@@ -66,11 +66,7 @@ class TokenViewModel: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
         logger.notice("refreshTimer 已设置: interval=\(Int(interval), privacy: .public)s, fireDate=\(ISO8601DateFormatter().string(from: fireDate), privacy: .public)")
-        let v2Kinds = ["TokenCheckLargeWidgetV3", "TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
-        for kind in v2Kinds {
-            WidgetCenter.shared.reloadTimelines(ofKind: kind)
-        }
-        logger.notice("已刷新 \(v2Kinds.count, privacy: .public) 个 V2 widget: \(v2Kinds.joined(separator: ", "), privacy: .public)")
+        reloadWidgetTimelines()
     }
 
     private func setupWakeNotification() {
@@ -112,9 +108,18 @@ class TokenViewModel: ObservableObject {
         if connected != lastServerConnected {
             lastServerConnected = connected
             logger.notice("opencode 服务器状态变化: \(connected ? "已连接" : "已断开", privacy: .public)，立即刷新 widget")
-            let v2Kinds = ["TokenCheckLargeWidgetV3", "TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
-            for kind in v2Kinds {
-                WidgetCenter.shared.reloadTimelines(ofKind: kind)
+            reloadWidgetTimelines()
+        }
+    }
+
+    private func reloadWidgetTimelines() {
+        let allKinds = ["TokenCheckLargeWidgetV3", "TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2", "ClashTrafficWidget"]
+        let step = 0.3
+        DispatchQueue.main.async {
+            for (index, kind) in allKinds.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * step) {
+                    WidgetCenter.shared.reloadTimelines(ofKind: kind)
+                }
             }
         }
     }
@@ -273,17 +278,12 @@ class TokenViewModel: ObservableObject {
                 }
                 let writeStart = CFAbsoluteTimeGetCurrent()
                 try? encoded.write(to: url, options: .atomic)
-                self.logger.notice("widget 文件写入完成 (\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - writeStart) * 1000), privacy: .public)ms), 刷新 V2 widget 种类")
-                let v2Kinds = ["TokenCheckLargeWidgetV3", "TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2"]
-                for kind in v2Kinds {
-                    WidgetCenter.shared.reloadTimelines(ofKind: kind)
-                }
-                self.logger.notice("已刷新 \(v2Kinds.count, privacy: .public) 个 V2 widget: \(v2Kinds.joined(separator: ", "), privacy: .public)")
+                self.logger.notice("widget 文件写入完成 (\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - writeStart) * 1000), privacy: .public)ms)")
+                self.reloadWidgetTimelines()
 
                 let clashService = ClashTrafficService()
                 clashService.fetchAndWriteTrafficData()
-                WidgetCenter.shared.reloadTimelines(ofKind: "ClashTrafficWidget")
-                self.logger.notice("Clash 流量数据已更新, ClashTrafficWidget 已刷新")
+                self.logger.notice("Clash 流量数据已更新")
             }
             let totalElapsed = CFAbsoluteTimeGetCurrent() - t0
             self.logger.notice("Total refresh: \(String(format: "%.1f", totalElapsed * 1000), privacy: .public)ms")
