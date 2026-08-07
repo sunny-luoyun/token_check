@@ -17,3 +17,8 @@ Package.resolved
 
 # CocoaPods
 Pods/
+
+# Go 页面监控（config 含邮件授权码，state 为本地状态）
+go-page-monitor/config.json
+go-page-monitor/state.json
+go-page-monitor/logs/
