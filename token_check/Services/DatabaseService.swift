@@ -265,7 +265,7 @@ final class DatabaseService {
         ) { stmt in
             TimePeriod(year: text(stmt, 0) ?? "", month: text(stmt, 1))
         }
-        let combined = Dictionary(uniqueKeysWithValues: (periods + sqlPeriods).map { ("\($0.year)/\($0.month ?? "")", $0) })
+        let combined = Dictionary((periods + sqlPeriods).map { ("\($0.year)/\($0.month ?? "")", $0) }) { _, new in new }
         return combined.values.sorted { ($0.year, $0.month ?? "") > ($1.year, $1.month ?? "") }
     }
 
