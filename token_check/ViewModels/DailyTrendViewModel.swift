@@ -114,6 +114,9 @@ class DailyTrendViewModel: ObservableObject {
 
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
+            if let ds = DatabaseService.shared, let db = ds.db {
+                TokenDeltaTracker.shared.refresh(db: db)
+            }
             do {
                 guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
                 let cal = Calendar.current
@@ -156,10 +159,9 @@ class DailyTrendViewModel: ObservableObject {
                     }
                 }
 
-                // 补充 session 表数据，填补 event 表可能缺失的历史记录
+                // service 层已统一为事件优先 + session 兜底
                 if let qs = queryStart, let qe = queryEnd {
-                    let sessionData = try service.fetchDailyUsageByModel(from: qs, to: qe)
-                    data = self.mergeDailyUsage(eventData: data, sessionData: sessionData)
+                    data = try service.fetchDailyUsageByModel(from: qs, to: qe)
                 }
 
                 let periods = try service.fetchAvailablePeriods()
@@ -229,27 +231,6 @@ class DailyTrendViewModel: ObservableObject {
 
     func applyFilter() {
         load()
-    }
-
-    private func mergeDailyUsage(eventData: [DailyModelUsage], sessionData: [DailyModelUsage]) -> [DailyModelUsage] {
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
-
-        var resultMap: [String: DailyModelUsage] = [:]
-
-        for item in sessionData {
-            let key = "\(df.string(from: item.date))\t\(item.providerID)\t\(item.modelId)\t\(item.variant)"
-            resultMap[key] = item
-        }
-
-        for item in eventData {
-            let key = "\(df.string(from: item.date))\t\(item.providerID)\t\(item.modelId)\t\(item.variant)"
-            if resultMap[key] == nil {
-                resultMap[key] = item
-            }
-        }
-
-        return Array(resultMap.values)
     }
 
     private func fillMissingDaysInRange(_ data: [DailyModelUsage], from startDate: Date, to endDate: Date) -> [DailyModelUsage] {

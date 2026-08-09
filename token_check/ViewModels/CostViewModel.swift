@@ -55,14 +55,15 @@ class CostViewModel: ObservableObject {
 
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
+            if let ds = DatabaseService.shared, let db = ds.db {
+                TokenDeltaTracker.shared.refresh(db: db)
+            }
             do {
                 guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
                 let pricingRules = ModelPricingStore.load()
-                let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
                 let rb: RollbackRecord
                 let modelRb: [String: TokenData]
-                let eventMc: [String: TokenData]
-                let sessionBreakdown: [ModelCostBreakdown]
+                let breakdown: [ModelCostBreakdown]
                 let periods = try service.fetchAvailablePeriods()
                 let referenceDate: Date
 
@@ -70,14 +71,17 @@ class CostViewModel: ObservableObject {
                     referenceDate = self.endDate
                     rb = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate)
                     modelRb = TokenDeltaTracker.shared.modelRollbacks(from: self.startDate, to: self.endDate)
-                    eventMc = TokenDeltaTracker.shared.modelConsumption(from: self.startDate, to: self.endDate)
-                    sessionBreakdown = try service.fetchModelCostBreakdown(from: self.startDate, to: self.endDate, pricingRules: pricingRules, referenceDate: referenceDate)
+                    breakdown = try service.fetchModelCostBreakdown(
+                        from: self.startDate,
+                        to: self.endDate,
+                        pricingRules: pricingRules,
+                        referenceDate: referenceDate
+                    )
                 } else {
                     referenceDate = .now
                     rb = TokenDeltaTracker.shared.rollback(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
                     modelRb = TokenDeltaTracker.shared.modelRollbacks(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
-                    eventMc = TokenDeltaTracker.shared.modelConsumption(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay)
-                    sessionBreakdown = try service.fetchModelCostBreakdown(
+                    breakdown = try service.fetchModelCostBreakdown(
                         year: self.selectedYear,
                         month: self.selectedMonth,
                         day: self.selectedDay,
@@ -86,60 +90,14 @@ class CostViewModel: ObservableObject {
                     )
                 }
 
-                var breakdownMap: [String: ModelCostBreakdown] = [:]
-                for (modelKey, tokens) in eventMc {
-                    let parts = modelKey.split(separator: "/")
-                    let providerID = String(parts[0])
-                    let modelId = parts.count > 1 ? String(parts[1]) : "unknown"
-                    let variant = parts.count > 2 ? String(parts[2]) : "default"
-                    let pricing = pricingLookup[modelKey] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
-                    breakdownMap[modelKey] = ModelCostBreakdown(
-                        id: modelKey,
-                        providerID: providerID,
-                        modelId: modelId,
-                        variant: variant,
-                        sessions: 0,
-                        cacheMissTokens: tokens.tokensInput,
-                        cacheHitTokens: tokens.tokensCacheRead,
-                        outputTokens: tokens.tokensOutput,
-                        reasoningTokens: tokens.tokensReasoning,
-                        pricing: pricing,
-                        referenceDate: referenceDate
-                    )
-                }
-                for item in sessionBreakdown {
-                    let key = item.id
-                    if var existing = breakdownMap[key] {
-                        let prices = existing.pricing.price(at: referenceDate)
-                        existing = ModelCostBreakdown(
-                            id: existing.id,
-                            providerID: existing.providerID,
-                            modelId: existing.modelId,
-                            variant: existing.variant,
-                            sessions: existing.sessions + item.sessions,
-                            cacheMissTokens: max(existing.cacheMissTokens, item.cacheMissTokens),
-                            cacheHitTokens: max(existing.cacheHitTokens, item.cacheHitTokens),
-                            outputTokens: max(existing.outputTokens, item.outputTokens),
-                            reasoningTokens: max(existing.reasoningTokens, item.reasoningTokens),
-                            pricing: existing.pricing,
-                            resolvedInputPrice: prices.inputMiss,
-                            resolvedCacheHitPrice: prices.cacheHit,
-                            resolvedOutputPrice: prices.output,
-                            resolvedReasoningPrice: prices.reasoning
-                        )
-                        breakdownMap[key] = existing
-                    } else {
-                        breakdownMap[key] = item
-                    }
-                }
-                let breakdown = breakdownMap.values
+                let breakdownFiltered = breakdown
                     .filter { $0.pricing.isEnabled }
                     .sorted { $0.cacheMissTokens > $1.cacheMissTokens }
 
-                let summary = CostSummary.from(breakdown: breakdown)
-                let pricingDescription = Self.makePricingDescription(for: breakdown)
+                let summary = CostSummary.from(breakdown: breakdownFiltered)
+                let pricingDescription = Self.makePricingDescription(for: breakdownFiltered)
 
-                let adjustedBreakdown: [ModelCostBreakdown] = breakdown.map { item in
+                let adjustedBreakdown: [ModelCostBreakdown] = breakdownFiltered.map { item in
                     let rb = modelRb[item.id] ?? .zero
                     let prices = item.pricing.price(at: referenceDate)
                     return ModelCostBreakdown(
@@ -160,7 +118,7 @@ class CostViewModel: ObservableObject {
                     )
                 }
                 let useAdjusted = self.showRollback && rb.total > 0
-                let finalBreakdown = useAdjusted ? adjustedBreakdown : breakdown
+                let finalBreakdown = useAdjusted ? adjustedBreakdown : breakdownFiltered
                 let finalSummary = useAdjusted ? CostSummary.from(breakdown: adjustedBreakdown) : summary
 
                 var days: [String] = []

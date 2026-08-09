@@ -66,6 +66,9 @@ class SessionListViewModel: ObservableObject {
 
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
+            if let ds = DatabaseService.shared, let db = ds.db {
+                TokenDeltaTracker.shared.refresh(db: db)
+            }
             do {
                 guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
                 let rb = TokenDeltaTracker.shared.sessionRollbacks
