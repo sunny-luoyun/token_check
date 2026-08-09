@@ -155,6 +155,7 @@ final class WidgetDataService {
 
         let sessionRow = fetchTodayRow(db, todayStart)
         let todayFromEvents = TokenDeltaTracker.shared.dailyConsumption[todayKey]
+        let trackerCoversToday = Self.trackerCovers(todayKey)
 
         let input: Int
         let output: Int
@@ -162,15 +163,36 @@ final class WidgetDataService {
         let reasoning: Int
         let cacheWrite: Int
         let sessionCount: Int
+        let additions: Int
+        let deletions: Int
+        let files: Int
 
-        if let row = sessionRow {
-            // session 表通过 UNION ALL 包含两个数据库，且每次重新打开连接，始终最新
+        if trackerCoversToday {
+            // 事件时间口径：今天的消耗归属今天
+            let tracker = TokenDeltaTracker.shared
+            let tc = tracker.dailyConsumption[todayKey] ?? .zero
+            input = tc.tokensInput
+            output = tc.tokensOutput
+            cacheRead = tc.tokensCacheRead
+            reasoning = tc.tokensReasoning
+            cacheWrite = tc.tokensCacheWrite
+            let todayParts = Self.dateParts(from: todayKey)
+            sessionCount = tracker.activeSessionCount(year: todayParts.year, month: todayParts.month, day: todayParts.day)
+            let todaySummary = tracker.summary(year: todayParts.year, month: todayParts.month, day: todayParts.day)
+            additions = todaySummary.additions
+            deletions = todaySummary.deletions
+            files = todaySummary.files
+        } else if let row = sessionRow {
+            // session 表兜底（事件缺失的历史日期）
             input = row.input
             output = row.output
             cacheRead = row.cacheRead
             reasoning = row.reasoning
             cacheWrite = row.cacheWrite
             sessionCount = row.sessions
+            additions = row.additions
+            deletions = row.deletions
+            files = row.files
         } else if let events = todayFromEvents {
             // 兜底：使用事件表累计数据
             input = events.tokensInput
@@ -179,24 +201,66 @@ final class WidgetDataService {
             reasoning = events.tokensReasoning
             cacheWrite = events.tokensCacheWrite
             sessionCount = 0
+            additions = 0
+            deletions = 0
+            files = 0
         } else {
             return nil
         }
 
         let messageCount = fetchTodayMessageCount(db, todayStart)
-        let projectCount = fetchTodayProjectCount(db, todayStart)
 
-        let todayCost = fetchTodayCost(db, todayStart)
+        let todayCost: Double
+        if trackerCoversToday {
+            let parts = Self.dateParts(from: todayKey)
+            todayCost = TokenDeltaTracker.shared.consumptionCost(year: parts.year, month: parts.month, day: parts.day)
+        } else {
+            todayCost = fetchTodayCost(db, todayStart)
+        }
 
-        let dailyTokens = fillMissingDays(fetchDailyTokens(db, thirtyDaysAgo) ?? [], since: thirtyDaysAgo)
-        let dailyCosts = fetchDailyCosts(db, cutoff: thirtyDaysAgo)
-        let costDf = DateFormatter()
-        costDf.dateFormat = "yyyy-MM-dd"
-        costDf.locale = Locale(identifier: "en_US_POSIX")
+        let projectCount: Int
+        if trackerCoversToday {
+            let parts = Self.dateParts(from: todayKey)
+            projectCount = TokenDeltaTracker.shared.activeProjectCount(year: parts.year, month: parts.month, day: parts.day)
+        } else {
+            projectCount = fetchTodayProjectCount(db, todayStart)
+        }
+
+        // 事件时间口径优先：事件覆盖的日期用 tracker，未覆盖的日期用 session 表兜底
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let eventSeries = TokenDeltaTracker.shared.dailyConsumptionSeries(
+            from: Date(timeIntervalSince1970: TimeInterval(thirtyDaysAgo) / 1000),
+            to: Date()
+        )
+        let eventCostSeries = TokenDeltaTracker.shared.dailyCostSeries(
+            from: Date(timeIntervalSince1970: TimeInterval(thirtyDaysAgo) / 1000),
+            to: Date()
+        )
+
+        let sqlDailyTokens = fetchDailyTokens(db, thirtyDaysAgo) ?? []
+        let sqlDailyCosts = fetchDailyCosts(db, cutoff: thirtyDaysAgo)
+
+        var mergedTokens: [String: DayTokenData] = [:]
+        for item in sqlDailyTokens {
+            let key = Self.eventDateKey(for: item.date)
+            mergedTokens[key] = item
+        }
+        for (key, tokens) in eventSeries {
+            guard let date = dailyDateFrom(key) else { continue }
+            mergedTokens[key] = DayTokenData(id: key, date: date, totalTokens: tokens.total)
+        }
+        var mergedCosts: [String: Double] = sqlDailyCosts
+        for (key, cost) in eventCostSeries {
+            mergedCosts[key] = cost
+        }
+
+        let dailyTokens = fillMissingDays(
+            mergedTokens.values.sorted { $0.date < $1.date },
+            since: thirtyDaysAgo
+        )
         let dailyTokensWithCost = dailyTokens.map { day in
-            let key = costDf.string(from: day.date)
-            let total = day.totalTokens
-            return DayTokenData(id: day.id, date: day.date, totalTokens: total, dailyCost: dailyCosts[key] ?? 0)
+            let key = Self.eventDateKey(for: day.date)
+            return DayTokenData(id: day.id, date: day.date, totalTokens: day.totalTokens, dailyCost: mergedCosts[key] ?? 0)
         }
 
         let hourlyTokens = fetchTodayHourlyUsage(db, todayStart)
@@ -211,9 +275,9 @@ final class WidgetDataService {
             sessionCount: sessionCount,
             messageCount: messageCount,
             projectCount: projectCount,
-            additions: sessionRow?.additions ?? 0,
-            deletions: sessionRow?.deletions ?? 0,
-            files: sessionRow?.files ?? 0,
+            additions: additions,
+            deletions: deletions,
+            files: files,
             dailyTokens: dailyTokensWithCost,
             hourlyTokens: hourlyTokens,
             todayCost: todayCost
@@ -262,6 +326,14 @@ final class WidgetDataService {
 
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
+        // 事件时间口径优先：事件覆盖的日期用 tracker 值覆盖
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let eventSeries = TokenDeltaTracker.shared.dailyConsumptionSeries(from: yearStart, to: yearEnd.addingTimeInterval(-1))
+        for (key, tokens) in eventSeries where covered.contains(key) {
+            if let d = df.date(from: key) {
+                existing[key] = tokens.total
+            }
+        }
         var days: [DayTokenData] = []
         var totalTokens = 0
 
@@ -327,6 +399,14 @@ final class WidgetDataService {
 
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
+        // 事件时间口径优先：事件覆盖的日期用 tracker 值覆盖
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let eventSeries = TokenDeltaTracker.shared.dailyConsumptionSeries(from: monthStart, to: monthEnd.addingTimeInterval(-1))
+        for (key, tokens) in eventSeries where covered.contains(key) {
+            if let date = df.date(from: key) {
+                existing[key] = tokens.total
+            }
+        }
         var days: [DayTokenData] = []
         var totalTokens = 0
 
@@ -347,6 +427,13 @@ final class WidgetDataService {
             days: days,
             firstWeekday: firstWeekday
         )
+    }
+
+    private func dailyDateFrom(_ key: String) -> Date? {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        return df.date(from: key)
     }
 
     private func fillMissingDays(_ tokens: [DayTokenData], since cutoffMs: Int64) -> [DayTokenData] {
@@ -591,6 +678,24 @@ final class WidgetDataService {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         return Int64(today.timeIntervalSince1970 * 1000)
+    }
+
+    /// 事件表覆盖的日期走事件口径；未覆盖的日期走 session 表兜底
+    private static func trackerCovers(_ dateKey: String) -> Bool {
+        TokenDeltaTracker.shared.coveredDateKeys().contains(dateKey)
+    }
+
+    private static func eventDateKey(for date: Date) -> String {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        return df.string(from: date)
+    }
+
+    private static func dateParts(from key: String) -> (year: String?, month: String?, day: String?) {
+        let parts = key.split(separator: "-")
+        guard parts.count == 3 else { return (nil, nil, nil) }
+        return (String(parts[0]), String(parts[1]), String(parts[2]))
     }
 
     private func int(_ stmt: OpaquePointer, _ idx: Int32) -> Int {
