@@ -17,20 +17,35 @@ final class TokenDeltaTracker {
     static let shared = TokenDeltaTracker()
 
     @Atomic var rollbackRecord = RollbackRecord.zero
-    @Atomic var sessionRollbacks: [String: TokenData] = [:]
+    @Atomic var sessionRollbacks: [String: RollbackRecord] = [:]
     @Atomic var modelRollbacks: [String: TokenData] = [:]
     @Atomic var dailyRollbacks: [String: RollbackRecord] = [:]
     @Atomic var dailyModelRollbacks: [String: [String: TokenData]] = [:]
     @Atomic var dailyConsumption: [String: TokenData] = [:]
     @Atomic var dailyModelConsumption: [String: [String: TokenData]] = [:]
     @Atomic var hourlyConsumption: [String: TokenData] = [:]
+    @Atomic var sessionCostCache: [String: Double] = [:]
+    @Atomic var sessionSummaryCache: [String: SummaryData] = [:]
+    @Atomic var dailyCostConsumption: [String: Double] = [:]
+    @Atomic var hourlyCostConsumption: [String: Double] = [:]
+    @Atomic var modelCostConsumption: [String: [String: Double]] = [:]
+    @Atomic var dailySummary: [String: SummaryData] = [:]
+    @Atomic var sessionDailyDelta: [String: [String: SessionDelta]] = [:]
+    @Atomic var sessionActiveDays: [String: Set<String>] = [:]
+    @Atomic var dailyActiveSessions: [String: Set<String>] = [:]
+    @Atomic var dailyActiveProjects: [String: Set<String>] = [:]
+    @Atomic var agentConsumption: [String: [String: TokenData]] = [:]
+    @Atomic var projectConsumption: [String: [String: TokenData]] = [:]
+    @Atomic var agentCostConsumption: [String: [String: Double]] = [:]
+    @Atomic var projectCostConsumption: [String: [String: Double]] = [:]
+    @Atomic var coveredDates: Set<String> = []
 
     // 增量处理缓存：记录上次处理到的 event rowid 和中间状态
     @Atomic var lastProcessedRowId: Int64 = 0
     @Atomic var devecoLastProcessedRowId: Int64 = 0
     @Atomic var sessionTokenCache: [String: TokenData] = [:]
     @Atomic var sessionModelCache: [String: String] = [:]
-    @Atomic var pendingRbCache: [String: TokenData] = [:]
+    @Atomic var pendingRbCache: [String: SessionDelta] = [:]
     @Atomic var pendingRbModelCache: [String: String] = [:]
     @Atomic var pendingRbTimestampCache: [String: Int64] = [:]
 
@@ -76,6 +91,21 @@ final class TokenDeltaTracker {
             var dCon = dailyConsumption
             var dMCon = dailyModelConsumption
             var hCon = hourlyConsumption
+            var sessionCosts = sessionCostCache
+            var sessionSummaries = sessionSummaryCache
+            var dCost = dailyCostConsumption
+            var hCost = hourlyCostConsumption
+            var mCost = modelCostConsumption
+            var dSum = dailySummary
+            var sDelta = sessionDailyDelta
+            var sActive = sessionActiveDays
+            var dActiveS = dailyActiveSessions
+            var dActiveP = dailyActiveProjects
+            var aCon = agentConsumption
+            var pCon = projectConsumption
+            var aCost = agentCostConsumption
+            var pCost = projectCostConsumption
+            var covered = coveredDates
 
             // 只处理新增的 event
             let sql = """
@@ -111,6 +141,12 @@ final class TokenDeltaTracker {
                     tokensCacheRead: ((tokensDict["cache"] as? [String: Any])?["read"] as? Int) ?? 0,
                     tokensCacheWrite: ((tokensDict["cache"] as? [String: Any])?["write"] as? Int) ?? 0
                 )
+                let cost = (info["cost"] as? Double) ?? 0
+                let summary = SummaryData(
+                    additions: (info["summary"] as? [String: Any])?["additions"] as? Int ?? 0,
+                    deletions: (info["summary"] as? [String: Any])?["deletions"] as? Int ?? 0,
+                    files: (info["summary"] as? [String: Any])?["files"] as? Int ?? 0
+                )
 
                 let eventTimestamp: Int64 = {
                     if let timeObj = info["time"] as? [String: Any], let updated = timeObj["updated"] as? Int64 {
@@ -119,80 +155,126 @@ final class TokenDeltaTracker {
                     return 0
                 }()
 
+                let agent = (info["agent"] as? String) ?? "unknown"
+                let projectID = (info["projectID"] as? String) ?? "unknown"
+
                 if let modelKey = extractModelKey(from: info) {
                     sessionModels[aggregateId] = modelKey
                 }
 
                 let hasRevert = info["revert"] != nil
+                if eventTimestamp > 0 {
+                    let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                    covered.insert(dateKey)
+                }
 
                 let prevSessionState = sessionTokens[aggregateId]
                 if !hasRevert, eventTimestamp > 0 {
+                    let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                    let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                    let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
+
+                    let tokenDelta: TokenData
                     if let prev = prevSessionState {
-                        let delta = TokenData(
+                        tokenDelta = TokenData(
                             tokensInput: max(0, tokens.tokensInput - prev.tokensInput),
                             tokensOutput: max(0, tokens.tokensOutput - prev.tokensOutput),
                             tokensReasoning: max(0, tokens.tokensReasoning - prev.tokensReasoning),
                             tokensCacheRead: max(0, tokens.tokensCacheRead - prev.tokensCacheRead),
                             tokensCacheWrite: max(0, tokens.tokensCacheWrite - prev.tokensCacheWrite)
                         )
-                        if delta.total > 0 {
-                            let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                            dCon[dateKey] = (dCon[dateKey] ?? .zero) + delta
-                            let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                            let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
-                            hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + delta
-                            if let modelKey = sessionModels[aggregateId] {
-                                var dm = dMCon[dateKey] ?? [:]
-                                dm[modelKey] = (dm[modelKey] ?? .zero) + delta
-                                dMCon[dateKey] = dm
-                            }
-                        }
                     } else {
-                        if tokens.total > 0 {
-                            let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                            dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokens
-                            let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                            let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
-                            hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + tokens
-                            if let modelKey = sessionModels[aggregateId] ?? extractModelKey(from: info) {
-                                var dm = dMCon[dateKey] ?? [:]
-                                dm[modelKey] = (dm[modelKey] ?? .zero) + tokens
-                                dMCon[dateKey] = dm
-                            }
+                        tokenDelta = tokens
+                    }
+                    let prevCost = sessionCosts[aggregateId] ?? 0
+                    let costDelta = max(0, cost - prevCost)
+                    let prevSummary = sessionSummaries[aggregateId] ?? .zero
+                    let summaryDelta = SummaryData(
+                        additions: max(0, summary.additions - prevSummary.additions),
+                        deletions: max(0, summary.deletions - prevSummary.deletions),
+                        files: max(0, summary.files - prevSummary.files)
+                    )
+                    sessionCosts[aggregateId] = cost
+                    sessionSummaries[aggregateId] = summary
+
+                    let hasDelta = tokenDelta.total > 0 || costDelta > 0 || summaryDelta.total > 0
+                    if hasDelta {
+                        dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokenDelta
+                        hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + tokenDelta
+                        dCost[dateKey] = (dCost[dateKey] ?? 0) + costDelta
+                        hCost[hourlyKey] = (hCost[hourlyKey] ?? 0) + costDelta
+                        dSum[dateKey] = (dSum[dateKey] ?? .zero) + summaryDelta
+
+                        var sd = sDelta[aggregateId] ?? [:]
+                        sd[dateKey] = (sd[dateKey] ?? .zero)
+                            + SessionDelta(tokens: tokenDelta, cost: costDelta, summary: summaryDelta, lastUpdated: eventTimestamp)
+                        sDelta[aggregateId] = sd
+
+                        if let modelKey = sessionModels[aggregateId] {
+                            var dm = dMCon[dateKey] ?? [:]
+                            dm[modelKey] = (dm[modelKey] ?? .zero) + tokenDelta
+                            dMCon[dateKey] = dm
+                            var mc = mCost[dateKey] ?? [:]
+                            mc[modelKey] = (mc[modelKey] ?? 0) + costDelta
+                            mCost[dateKey] = mc
                         }
+
+                        var ac = aCon[dateKey] ?? [:]
+                        ac[agent] = (ac[agent] ?? .zero) + tokenDelta
+                        aCon[dateKey] = ac
+                        var aco = aCost[dateKey] ?? [:]
+                        aco[agent] = (aco[agent] ?? 0) + costDelta
+                        aCost[dateKey] = aco
+                        var pc = pCon[dateKey] ?? [:]
+                        pc[projectID] = (pc[projectID] ?? .zero) + tokenDelta
+                        pCon[dateKey] = pc
+                        var pco = pCost[dateKey] ?? [:]
+                        pco[projectID] = (pco[projectID] ?? 0) + costDelta
+                        pCost[dateKey] = pco
+
+                        sActive[aggregateId] = (sActive[aggregateId] ?? []).union([dateKey])
+                        dActiveS[dateKey] = (dActiveS[dateKey] ?? []).union([aggregateId])
+                        dActiveP[dateKey] = (dActiveP[dateKey] ?? []).union([projectID])
                     }
                 }
 
                 if hasRevert {
-                    pendingRollbacks[aggregateId] = sessionTokens[aggregateId] ?? tokens
+                    // 保存回滚前的完整状态快照（tokens + cost + summary）
+                    pendingRollbacks[aggregateId] = SessionDelta(
+                        tokens: sessionTokens[aggregateId] ?? tokens,
+                        cost: sessionCosts[aggregateId] ?? cost,
+                        summary: sessionSummaries[aggregateId] ?? summary,
+                        lastUpdated: eventTimestamp
+                    )
                     pendingRollbackModels[aggregateId] = sessionModels[aggregateId]
                     pendingRollbackTimestamps[aggregateId] = eventTimestamp
                     sessionTokens[aggregateId] = tokens
-                } else if let preTokens = pendingRollbacks[aggregateId] {
-                    let diff = preTokens - tokens
-                    let positiveRollback = TokenData(
-                        tokensInput: max(0, diff.tokensInput),
-                        tokensOutput: max(0, diff.tokensOutput),
-                        tokensReasoning: max(0, diff.tokensReasoning),
-                        tokensCacheRead: max(0, diff.tokensCacheRead),
-                        tokensCacheWrite: max(0, diff.tokensCacheWrite)
+                    sessionCosts[aggregateId] = cost
+                    sessionSummaries[aggregateId] = summary
+                } else if let preState = pendingRollbacks[aggregateId] {
+                    let currentState = SessionDelta(
+                        tokens: tokens,
+                        cost: cost,
+                        summary: summary,
+                        lastUpdated: eventTimestamp
                     )
-                    if positiveRollback.total > 0 {
+                    let positiveRb = positiveRollback(from: preState - currentState)
+                    if positiveRb.total > 0 || positiveRb.rolledBackCost > 0 || positiveRb.rolledBackAdditions > 0 {
                         let rollbackTimestamp = pendingRollbackTimestamps[aggregateId] ?? eventTimestamp
                         let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(rollbackTimestamp) / 1000))
 
-                        rb += positiveRollback
-                        sRb[aggregateId] = (sRb[aggregateId] ?? .zero) + positiveRollback
+                        rb += positiveRb
+                        sRb[aggregateId] = (sRb[aggregateId] ?? .zero) + positiveRb
 
                         var existing = dRb[dateKey] ?? .zero
-                        existing += positiveRollback
+                        existing += positiveRb
                         dRb[dateKey] = existing
 
                         let modelKey = pendingRollbackModels[aggregateId] ?? sessionModels[aggregateId]
                         if let mk = modelKey {
-                            mRb[mk] = (mRb[mk] ?? .zero) + positiveRollback
+                            mRb[mk] = (mRb[mk] ?? .zero) + positiveRb.asTokenData
                             var dailyModel = dMRb[dateKey] ?? [:]
-                            dailyModel[mk] = (dailyModel[mk] ?? .zero) + positiveRollback
+                            dailyModel[mk] = (dailyModel[mk] ?? .zero) + positiveRb.asTokenData
                             dMRb[dateKey] = dailyModel
                         }
                     }
@@ -200,8 +282,12 @@ final class TokenDeltaTracker {
                     pendingRollbackModels.removeValue(forKey: aggregateId)
                     pendingRollbackTimestamps.removeValue(forKey: aggregateId)
                     sessionTokens[aggregateId] = tokens
+                    sessionCosts[aggregateId] = cost
+                    sessionSummaries[aggregateId] = summary
                 } else {
                     sessionTokens[aggregateId] = tokens
+                    sessionCosts[aggregateId] = cost
+                    sessionSummaries[aggregateId] = summary
                 }
             }
 
@@ -221,6 +307,21 @@ final class TokenDeltaTracker {
             dailyConsumption = dCon
             dailyModelConsumption = dMCon
             hourlyConsumption = hCon
+            sessionCostCache = sessionCosts
+            sessionSummaryCache = sessionSummaries
+            dailyCostConsumption = dCost
+            hourlyCostConsumption = hCost
+            modelCostConsumption = mCost
+            dailySummary = dSum
+            sessionDailyDelta = sDelta
+            sessionActiveDays = sActive
+            dailyActiveSessions = dActiveS
+            dailyActiveProjects = dActiveP
+            agentConsumption = aCon
+            projectConsumption = pCon
+            agentCostConsumption = aCost
+            projectCostConsumption = pCost
+            coveredDates = covered
 
             lastProcessedRowId = maxRowId
         }
@@ -270,6 +371,21 @@ final class TokenDeltaTracker {
         var dCon = dailyConsumption
         var dMCon = dailyModelConsumption
         var hCon = hourlyConsumption
+        var sessionCosts = sessionCostCache
+        var sessionSummaries = sessionSummaryCache
+        var dCost = dailyCostConsumption
+        var hCost = hourlyCostConsumption
+        var mCost = modelCostConsumption
+        var dSum = dailySummary
+        var sDelta = sessionDailyDelta
+        var sActive = sessionActiveDays
+        var dActiveS = dailyActiveSessions
+        var dActiveP = dailyActiveProjects
+        var aCon = agentConsumption
+        var pCon = projectConsumption
+        var aCost = agentCostConsumption
+        var pCost = projectCostConsumption
+        var covered = coveredDates
 
         let eventSQL = """
             SELECT rowid, aggregate_id, type, data
@@ -305,6 +421,12 @@ final class TokenDeltaTracker {
                 tokensCacheRead: ((tokensDict["cache"] as? [String: Any])?["read"] as? Int) ?? 0,
                 tokensCacheWrite: ((tokensDict["cache"] as? [String: Any])?["write"] as? Int) ?? 0
             )
+            let cost = (info["cost"] as? Double) ?? 0
+            let summary = SummaryData(
+                additions: (info["summary"] as? [String: Any])?["additions"] as? Int ?? 0,
+                deletions: (info["summary"] as? [String: Any])?["deletions"] as? Int ?? 0,
+                files: (info["summary"] as? [String: Any])?["files"] as? Int ?? 0
+            )
 
             let eventTimestamp: Int64 = {
                 if let timeObj = info["time"] as? [String: Any], let updated = timeObj["updated"] as? Int64 {
@@ -313,80 +435,126 @@ final class TokenDeltaTracker {
                 return 0
             }()
 
+            let agent = (info["agent"] as? String) ?? "unknown"
+            let projectID = (info["projectID"] as? String) ?? "unknown"
+
             if let modelKey = extractModelKey(from: info) {
                 sessionModels[aggregateId] = modelKey
             }
 
             let hasRevert = info["revert"] != nil
+            if eventTimestamp > 0 {
+                let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                covered.insert(dateKey)
+            }
 
             let prevSessionState = sessionTokens[aggregateId]
             if !hasRevert, eventTimestamp > 0 {
+                let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
+                let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
+
+                let tokenDelta: TokenData
                 if let prev = prevSessionState {
-                    let delta = TokenData(
+                    tokenDelta = TokenData(
                         tokensInput: max(0, tokens.tokensInput - prev.tokensInput),
                         tokensOutput: max(0, tokens.tokensOutput - prev.tokensOutput),
                         tokensReasoning: max(0, tokens.tokensReasoning - prev.tokensReasoning),
                         tokensCacheRead: max(0, tokens.tokensCacheRead - prev.tokensCacheRead),
                         tokensCacheWrite: max(0, tokens.tokensCacheWrite - prev.tokensCacheWrite)
                     )
-                    if delta.total > 0 {
-                        let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                        dCon[dateKey] = (dCon[dateKey] ?? .zero) + delta
-                        let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                        let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
-                        hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + delta
-                        if let modelKey = sessionModels[aggregateId] {
-                            var dm = dMCon[dateKey] ?? [:]
-                            dm[modelKey] = (dm[modelKey] ?? .zero) + delta
-                            dMCon[dateKey] = dm
-                        }
-                    }
                 } else {
-                    if tokens.total > 0 {
-                        let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                        dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokens
-                        let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                        let hourlyKey = "\(dateKey)/\(String(format: "%02d", hour))"
-                        hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + tokens
-                        if let modelKey = sessionModels[aggregateId] ?? extractModelKey(from: info) {
-                            var dm = dMCon[dateKey] ?? [:]
-                            dm[modelKey] = (dm[modelKey] ?? .zero) + tokens
-                            dMCon[dateKey] = dm
-                        }
+                    tokenDelta = tokens
+                }
+                let prevCost = sessionCosts[aggregateId] ?? 0
+                let costDelta = max(0, cost - prevCost)
+                let prevSummary = sessionSummaries[aggregateId] ?? .zero
+                let summaryDelta = SummaryData(
+                    additions: max(0, summary.additions - prevSummary.additions),
+                    deletions: max(0, summary.deletions - prevSummary.deletions),
+                    files: max(0, summary.files - prevSummary.files)
+                )
+                sessionCosts[aggregateId] = cost
+                sessionSummaries[aggregateId] = summary
+
+                let hasDelta = tokenDelta.total > 0 || costDelta > 0 || summaryDelta.total > 0
+                if hasDelta {
+                    dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokenDelta
+                    hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + tokenDelta
+                    dCost[dateKey] = (dCost[dateKey] ?? 0) + costDelta
+                    hCost[hourlyKey] = (hCost[hourlyKey] ?? 0) + costDelta
+                    dSum[dateKey] = (dSum[dateKey] ?? .zero) + summaryDelta
+
+                    var sd = sDelta[aggregateId] ?? [:]
+                    sd[dateKey] = (sd[dateKey] ?? .zero)
+                        + SessionDelta(tokens: tokenDelta, cost: costDelta, summary: summaryDelta, lastUpdated: eventTimestamp)
+                    sDelta[aggregateId] = sd
+
+                    if let modelKey = sessionModels[aggregateId] {
+                        var dm = dMCon[dateKey] ?? [:]
+                        dm[modelKey] = (dm[modelKey] ?? .zero) + tokenDelta
+                        dMCon[dateKey] = dm
+                        var mc = mCost[dateKey] ?? [:]
+                        mc[modelKey] = (mc[modelKey] ?? 0) + costDelta
+                        mCost[dateKey] = mc
                     }
+
+                    var ac = aCon[dateKey] ?? [:]
+                    ac[agent] = (ac[agent] ?? .zero) + tokenDelta
+                    aCon[dateKey] = ac
+                    var aco = aCost[dateKey] ?? [:]
+                    aco[agent] = (aco[agent] ?? 0) + costDelta
+                    aCost[dateKey] = aco
+                    var pc = pCon[dateKey] ?? [:]
+                    pc[projectID] = (pc[projectID] ?? .zero) + tokenDelta
+                    pCon[dateKey] = pc
+                    var pco = pCost[dateKey] ?? [:]
+                    pco[projectID] = (pco[projectID] ?? 0) + costDelta
+                    pCost[dateKey] = pco
+
+                    sActive[aggregateId] = (sActive[aggregateId] ?? []).union([dateKey])
+                    dActiveS[dateKey] = (dActiveS[dateKey] ?? []).union([aggregateId])
+                    dActiveP[dateKey] = (dActiveP[dateKey] ?? []).union([projectID])
                 }
             }
 
             if hasRevert {
-                pendingRollbacks[aggregateId] = sessionTokens[aggregateId] ?? tokens
+                // 保存回滚前的完整状态快照（tokens + cost + summary）
+                pendingRollbacks[aggregateId] = SessionDelta(
+                    tokens: sessionTokens[aggregateId] ?? tokens,
+                    cost: sessionCosts[aggregateId] ?? cost,
+                    summary: sessionSummaries[aggregateId] ?? summary,
+                    lastUpdated: eventTimestamp
+                )
                 pendingRollbackModels[aggregateId] = sessionModels[aggregateId]
                 pendingRollbackTimestamps[aggregateId] = eventTimestamp
                 sessionTokens[aggregateId] = tokens
-            } else if let preTokens = pendingRollbacks[aggregateId] {
-                let diff = preTokens - tokens
-                let positiveRollback = TokenData(
-                    tokensInput: max(0, diff.tokensInput),
-                    tokensOutput: max(0, diff.tokensOutput),
-                    tokensReasoning: max(0, diff.tokensReasoning),
-                    tokensCacheRead: max(0, diff.tokensCacheRead),
-                    tokensCacheWrite: max(0, diff.tokensCacheWrite)
+                sessionCosts[aggregateId] = cost
+                sessionSummaries[aggregateId] = summary
+            } else if let preState = pendingRollbacks[aggregateId] {
+                let currentState = SessionDelta(
+                    tokens: tokens,
+                    cost: cost,
+                    summary: summary,
+                    lastUpdated: eventTimestamp
                 )
-                if positiveRollback.total > 0 {
+                let positiveRb = positiveRollback(from: preState - currentState)
+                if positiveRb.total > 0 || positiveRb.rolledBackCost > 0 || positiveRb.rolledBackAdditions > 0 {
                     let rollbackTimestamp = pendingRollbackTimestamps[aggregateId] ?? eventTimestamp
                     let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(rollbackTimestamp) / 1000))
 
-                    rb += positiveRollback
-                    sRb[aggregateId] = (sRb[aggregateId] ?? .zero) + positiveRollback
+                    rb += positiveRb
+                    sRb[aggregateId] = (sRb[aggregateId] ?? .zero) + positiveRb
 
                     var existing = dRb[dateKey] ?? .zero
-                    existing += positiveRollback
+                    existing += positiveRb
                     dRb[dateKey] = existing
 
                     let modelKey = pendingRollbackModels[aggregateId] ?? sessionModels[aggregateId]
                     if let mk = modelKey {
-                        mRb[mk] = (mRb[mk] ?? .zero) + positiveRollback
+                        mRb[mk] = (mRb[mk] ?? .zero) + positiveRb.asTokenData
                         var dailyModel = dMRb[dateKey] ?? [:]
-                        dailyModel[mk] = (dailyModel[mk] ?? .zero) + positiveRollback
+                        dailyModel[mk] = (dailyModel[mk] ?? .zero) + positiveRb.asTokenData
                         dMRb[dateKey] = dailyModel
                     }
                 }
@@ -394,8 +562,12 @@ final class TokenDeltaTracker {
                 pendingRollbackModels.removeValue(forKey: aggregateId)
                 pendingRollbackTimestamps.removeValue(forKey: aggregateId)
                 sessionTokens[aggregateId] = tokens
+                sessionCosts[aggregateId] = cost
+                sessionSummaries[aggregateId] = summary
             } else {
                 sessionTokens[aggregateId] = tokens
+                sessionCosts[aggregateId] = cost
+                sessionSummaries[aggregateId] = summary
             }
         }
 
@@ -413,8 +585,38 @@ final class TokenDeltaTracker {
         dailyConsumption = dCon
         dailyModelConsumption = dMCon
         hourlyConsumption = hCon
+        sessionCostCache = sessionCosts
+        sessionSummaryCache = sessionSummaries
+        dailyCostConsumption = dCost
+        hourlyCostConsumption = hCost
+        modelCostConsumption = mCost
+        dailySummary = dSum
+        sessionDailyDelta = sDelta
+        sessionActiveDays = sActive
+        dailyActiveSessions = dActiveS
+        dailyActiveProjects = dActiveP
+        agentConsumption = aCon
+        projectConsumption = pCon
+        agentCostConsumption = aCost
+        projectCostConsumption = pCost
+        coveredDates = covered
 
         devecoLastProcessedRowId = maxRowId
+    }
+
+    /// 将回滚差量截断为正值，记入 rollback 账本
+    private func positiveRollback(from diff: SessionDelta) -> RollbackRecord {
+        RollbackRecord(
+            rolledBackInput: max(0, diff.tokens.tokensInput),
+            rolledBackOutput: max(0, diff.tokens.tokensOutput),
+            rolledBackReasoning: max(0, diff.tokens.tokensReasoning),
+            rolledBackCacheRead: max(0, diff.tokens.tokensCacheRead),
+            rolledBackCacheWrite: max(0, diff.tokens.tokensCacheWrite),
+            rolledBackCost: max(0, diff.cost),
+            rolledBackAdditions: max(0, diff.summary.additions),
+            rolledBackDeletions: max(0, diff.summary.deletions),
+            rolledBackFiles: max(0, diff.summary.files)
+        )
     }
 
     func rollback(year: String?, month: String?, day: String?) -> RollbackRecord {

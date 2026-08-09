@@ -6,7 +6,7 @@ class SessionListViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var searchText = ""
-    @Published var sessionRollbacks: [String: TokenData] = [:]
+    @Published var sessionRollbacks: [String: RollbackRecord] = [:]
     @Published var periods: [TimePeriod] = []
     @Published var filterMode: TimeFilterMode = .range
     @Published var startDate: Date = {

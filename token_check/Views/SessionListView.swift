@@ -52,7 +52,7 @@ struct SessionListView: View {
 
                         TableColumn("Input") { session in
                             let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
-                            let adjusted = session.tokensInput + (rollback?.tokensInput ?? 0)
+                            let adjusted = session.tokensInput + (rollback?.asTokenData.tokensInput ?? 0)
                             Text(formatNumber(adjusted))
                                 .font(.caption.monospaced())
                                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -61,7 +61,7 @@ struct SessionListView: View {
 
                         TableColumn("Output") { session in
                             let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
-                            let adjusted = session.tokensOutput + (rollback?.tokensOutput ?? 0)
+                            let adjusted = session.tokensOutput + (rollback?.asTokenData.tokensOutput ?? 0)
                             Text(formatNumber(adjusted))
                                 .font(.caption.monospaced())
                                 .frame(maxWidth: .infinity, alignment: .trailing)
