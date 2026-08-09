@@ -163,10 +163,6 @@ final class TokenDeltaTracker {
                 }
 
                 let hasRevert = info["revert"] != nil
-                if eventTimestamp > 0 {
-                    let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                    covered.insert(dateKey)
-                }
 
                 let prevSessionState = sessionTokens[aggregateId]
                 if !hasRevert, eventTimestamp > 0 {
@@ -199,6 +195,8 @@ final class TokenDeltaTracker {
 
                     let hasDelta = tokenDelta.total > 0 || costDelta > 0 || summaryDelta.total > 0
                     if hasDelta {
+                        // 有实际增量才标记该日期为事件覆盖（无消耗日期不进入 covered）
+                        covered.insert(dateKey)
                         dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokenDelta
                         hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + tokenDelta
                         dCost[dateKey] = (dCost[dateKey] ?? 0) + costDelta
@@ -259,7 +257,7 @@ final class TokenDeltaTracker {
                         lastUpdated: eventTimestamp
                     )
                     let positiveRb = positiveRollback(from: preState - currentState)
-                    if positiveRb.total > 0 || positiveRb.rolledBackCost > 0 || positiveRb.rolledBackAdditions > 0 {
+                    if positiveRb.total > 0 || positiveRb.rolledBackCost > 0 || positiveRb.rolledBackAdditions > 0 || positiveRb.rolledBackDeletions > 0 || positiveRb.rolledBackFiles > 0 {
                         let rollbackTimestamp = pendingRollbackTimestamps[aggregateId] ?? eventTimestamp
                         let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(rollbackTimestamp) / 1000))
 
@@ -443,10 +441,6 @@ final class TokenDeltaTracker {
             }
 
             let hasRevert = info["revert"] != nil
-            if eventTimestamp > 0 {
-                let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(eventTimestamp) / 1000))
-                covered.insert(dateKey)
-            }
 
             let prevSessionState = sessionTokens[aggregateId]
             if !hasRevert, eventTimestamp > 0 {
@@ -479,6 +473,8 @@ final class TokenDeltaTracker {
 
                 let hasDelta = tokenDelta.total > 0 || costDelta > 0 || summaryDelta.total > 0
                 if hasDelta {
+                    // 有实际增量才标记该日期为事件覆盖（无消耗日期不进入 covered）
+                    covered.insert(dateKey)
                     dCon[dateKey] = (dCon[dateKey] ?? .zero) + tokenDelta
                     hCon[hourlyKey] = (hCon[hourlyKey] ?? .zero) + tokenDelta
                     dCost[dateKey] = (dCost[dateKey] ?? 0) + costDelta
@@ -539,7 +535,7 @@ final class TokenDeltaTracker {
                     lastUpdated: eventTimestamp
                 )
                 let positiveRb = positiveRollback(from: preState - currentState)
-                if positiveRb.total > 0 || positiveRb.rolledBackCost > 0 || positiveRb.rolledBackAdditions > 0 {
+                if positiveRb.total > 0 || positiveRb.rolledBackCost > 0 || positiveRb.rolledBackAdditions > 0 || positiveRb.rolledBackDeletions > 0 || positiveRb.rolledBackFiles > 0 {
                     let rollbackTimestamp = pendingRollbackTimestamps[aggregateId] ?? eventTimestamp
                     let dateKey = Self.dailyDateFormatter.string(from: Date(timeIntervalSince1970: Double(rollbackTimestamp) / 1000))
 

@@ -227,7 +227,6 @@ final class WidgetDataService {
         }
 
         // 事件时间口径优先：事件覆盖的日期用 tracker，未覆盖的日期用 session 表兜底
-        let covered = TokenDeltaTracker.shared.coveredDateKeys()
         let eventSeries = TokenDeltaTracker.shared.dailyConsumptionSeries(
             from: Date(timeIntervalSince1970: TimeInterval(thirtyDaysAgo) / 1000),
             to: Date()
