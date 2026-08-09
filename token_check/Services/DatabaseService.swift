@@ -161,27 +161,34 @@ final class DatabaseService {
     }
 
     func fetchDailyUsageByModel(days: Int = 30, year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> [DailyModelUsage] {
-        var whereClause = ""
-        var params: [Any] = []
-        if let startDate, let endDate {
-            let (clause, p) = buildDateRangeClause(from: startDate, to: endDate)
-            whereClause = clause
-            params = p
-        } else if let year, let month, let day {
-            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ? AND strftime('%d', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?"
-            params = [year, month, day]
-        } else if let year, let month {
-            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ? AND strftime('%m', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?"
-            params = [year, month]
-        } else if let year {
-            whereClause = "WHERE strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) = ?"
-            params = [year]
-        } else {
-            let cutoff = Date.now.timeIntervalSince1970 * 1000 - Double(days) * 86_400 * 1000
-            whereClause = "WHERE time_created > ?"
-            params = [Int64(cutoff)]
+        // 事件时间口径优先：tracker 的按模型日消耗
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let keys = dateKeys(year: year, month: month, day: day, from: startDate, to: endDate)
+        var eventMap: [String: [String: DailyModelUsage]] = [:] // dateKey -> modelKey -> usage
+        for (dateKey, models) in TokenDeltaTracker.shared.dailyModelConsumption where keys.contains(dateKey) {
+            for (modelKey, tokens) in models {
+                let parts = modelKey.split(separator: "/")
+                let providerID = String(parts[0])
+                let modelId = parts.count > 1 ? String(parts[1]) : "unknown"
+                let variant = parts.count > 2 ? String(parts[2]) : "default"
+                eventMap[dateKey, default: [:]][modelKey] = DailyModelUsage(
+                    id: "\(dateKey)/\(modelKey)",
+                    date: Self.dateFromKey(dateKey),
+                    providerID: providerID,
+                    modelId: modelId,
+                    variant: variant,
+                    inputTokens: tokens.tokensInput,
+                    outputTokens: tokens.tokensOutput,
+                    cacheReadTokens: tokens.tokensCacheRead,
+                    reasoningTokens: tokens.tokensReasoning,
+                    cacheWriteTokens: tokens.tokensCacheWrite
+                )
+            }
         }
-        return try readAll(
+
+        // 兜底：事件未覆盖的日期用 session 表（SQL 范围沿用 buildTimeClause，兼容 year/month/day 与 from/to 两种模式）
+        let (whereClause, whereParams) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        let sqlResult = try readAll(
             """
             SELECT date(datetime(time_created / 1000, 'unixepoch', 'localtime')) AS day,
                    COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
@@ -196,7 +203,7 @@ final class DatabaseService {
             GROUP BY day, provider_id, model_id, variant
             ORDER BY day, model_id
             """,
-            parameters: params
+            parameters: whereParams
         ) { stmt in
             let dateStr = text(stmt, 0) ?? ""
             let df = DateFormatter()
@@ -205,8 +212,9 @@ final class DatabaseService {
             let providerID = text(stmt, 1) ?? "opencode"
             let mid = text(stmt, 2) ?? "unknown"
             let variant = text(stmt, 3) ?? "default"
-            return DailyModelUsage(
-                id: "\(dateStr)/\(providerID)/\(mid)/\(variant)",
+            let modelKey = "\(providerID)/\(mid)/\(variant)"
+            return (dateStr, modelKey, DailyModelUsage(
+                id: "\(dateStr)/\(modelKey)",
                 date: date,
                 providerID: providerID,
                 modelId: mid,
@@ -216,12 +224,37 @@ final class DatabaseService {
                 cacheReadTokens: int(stmt, 5),
                 reasoningTokens: int(stmt, 7),
                 cacheWriteTokens: 0
-            )
+            ))
         }
+        for (dateStr, modelKey, usage) in sqlResult where !covered.contains(dateStr) {
+            eventMap[dateStr, default: [:]][modelKey] = usage
+        }
+
+        var result: [DailyModelUsage] = []
+        for (_, models) in eventMap {
+            for usage in models.values {
+                result.append(usage)
+            }
+        }
+        return result.sorted { $0.date < $1.date }
+    }
+
+    private static func dateFromKey(_ key: String) -> Date {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        return df.date(from: key) ?? .now
     }
 
     func fetchAvailablePeriods() throws -> [TimePeriod] {
-        try readAll(
+        var periods: [TimePeriod] = []
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        for key in covered {
+            let parts = key.split(separator: "-")
+            guard parts.count == 3 else { continue }
+            periods.append(TimePeriod(year: String(parts[0]), month: String(parts[1])))
+        }
+        let sqlPeriods = try readAll(
             """
             SELECT DISTINCT
                 strftime('%Y', datetime(time_created / 1000, 'unixepoch', 'localtime')) AS year,
@@ -232,10 +265,18 @@ final class DatabaseService {
         ) { stmt in
             TimePeriod(year: text(stmt, 0) ?? "", month: text(stmt, 1))
         }
+        let combined = Dictionary(uniqueKeysWithValues: (periods + sqlPeriods).map { ("\($0.year)/\($0.month ?? "")", $0) })
+        return combined.values.sorted { ($0.year, $0.month ?? "") > ($1.year, $1.month ?? "") }
     }
 
     func fetchAvailableDays(year: String, month: String) throws -> [String] {
-        try readAll(
+        var days: Set<String> = []
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let prefix = "\(year)-\(month)"
+        for key in covered where key.hasPrefix(prefix) {
+            days.insert(String(key.suffix(2)))
+        }
+        let sqlDays = try readAll(
             """
             SELECT DISTINCT strftime('%d', datetime(time_created / 1000, 'unixepoch', 'localtime'))
             FROM \(sessionSource)
@@ -247,12 +288,43 @@ final class DatabaseService {
         ) { stmt in
             text(stmt, 0) ?? ""
         }
+        days.formUnion(sqlDays)
+        return days.sorted()
     }
 
     func fetchModelCostBreakdown(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, pricingRules: [ModelPricingRule] = [], referenceDate: Date = .now) throws -> [ModelCostBreakdown] {
         let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
-        let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
-        return try readAll(
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let keys = dateKeys(year: year, month: month, day: day, from: startDate, to: endDate)
+
+        // 事件时间口径：按模型增量
+        var breakdownMap: [String: ModelCostBreakdown] = [:]
+        for (modelKey, tokens) in TokenDeltaTracker.shared.dailyModelConsumption
+            .filter({ keys.contains($0.key) })
+            .flatMap({ $0.value }) {
+            let parts = modelKey.split(separator: "/")
+            let providerID = String(parts[0])
+            let modelId = parts.count > 1 ? String(parts[1]) : "unknown"
+            let variant = parts.count > 2 ? String(parts[2]) : "default"
+            let pricing = pricingLookup[modelKey] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
+            let existing = breakdownMap[modelKey]
+            breakdownMap[modelKey] = ModelCostBreakdown(
+                id: modelKey,
+                providerID: providerID,
+                modelId: modelId,
+                variant: variant,
+                sessions: (existing?.sessions ?? 0) + 0,
+                cacheMissTokens: (existing?.cacheMissTokens ?? 0) + tokens.tokensInput,
+                cacheHitTokens: (existing?.cacheHitTokens ?? 0) + tokens.tokensCacheRead,
+                outputTokens: (existing?.outputTokens ?? 0) + tokens.tokensOutput,
+                reasoningTokens: (existing?.reasoningTokens ?? 0) + tokens.tokensReasoning,
+                pricing: pricing,
+                referenceDate: referenceDate
+            )
+        }
+
+        // 兜底：事件未覆盖日期用 session 表
+        let sqlBreakdown = try readAll(
             """
             SELECT COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
                    json_extract(model, '$.id') AS model_id,
@@ -263,85 +335,105 @@ final class DatabaseService {
                      COALESCE(SUM(tokens_output), 0) AS output,
                        COALESCE(SUM(tokens_reasoning), 0) AS reasoning
             FROM \(sessionSource)
-            \(whereClause)
+            \(buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate).0)
             GROUP BY provider_id, model_id, variant
             ORDER BY SUM(tokens_input) DESC
             """,
-            parameters: params
+            parameters: buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate).1
         ) { stmt in
             let providerID = text(stmt, 0) ?? "opencode"
             let modelId = text(stmt, 1) ?? "unknown"
             let variant = text(stmt, 2) ?? "default"
-             let pricing = pricingLookup["\(providerID)/\(modelId)/\(variant)"] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
-             return ModelCostBreakdown(
-                id: "\(providerID)/\(modelId)/\(variant)",
-                providerID: providerID,
-                modelId: modelId,
-                variant: variant,
-                sessions: int(stmt, 3),
-                cacheMissTokens: int(stmt, 4),
-                cacheHitTokens: int(stmt, 5),
-                outputTokens: int(stmt, 6),
-                reasoningTokens: int(stmt, 7),
-                pricing: pricing,
-                referenceDate: referenceDate
-            )
+            return (providerID, modelId, variant, int(stmt, 3), int(stmt, 4), int(stmt, 5), int(stmt, 6), int(stmt, 7))
         }
-        .filter { $0.pricing.isEnabled }
+        // 仅当该时间段完全没有事件覆盖时才用 session 数据（避免跨天会话历史混入）
+        let coveredInRange = keys.intersection(covered)
+        if coveredInRange.isEmpty {
+            for (providerID, modelId, variant, sessions, miss, hit, output, reasoning) in sqlBreakdown {
+                let modelKey = "\(providerID)/\(modelId)/\(variant)"
+                let pricing = pricingLookup[modelKey] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
+                breakdownMap[modelKey] = ModelCostBreakdown(
+                    id: modelKey,
+                    providerID: providerID,
+                    modelId: modelId,
+                    variant: variant,
+                    sessions: sessions,
+                    cacheMissTokens: miss,
+                    cacheHitTokens: hit,
+                    outputTokens: output,
+                    reasoningTokens: reasoning,
+                    pricing: pricing,
+                    referenceDate: referenceDate
+                )
+            }
+        }
+
+        return breakdownMap.values
+            .filter { $0.pricing.isEnabled }
+            .sorted { $0.cacheMissTokens > $1.cacheMissTokens }
     }
 
     func fetchCostSummary(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, pricingRules: [ModelPricingRule] = [], referenceDate: Date = .now) throws -> CostSummary {
-        let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
-        let pricingLookup = ModelPricingStore.lookup(from: pricingRules)
-        let rows = try readAll(
-            """
-            SELECT COALESCE(json_extract(model, '$.providerID'), 'opencode') AS provider_id,
-                   json_extract(model, '$.id') AS model_id,
-                   CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END AS variant,
-                   COALESCE(SUM(tokens_input), 0) AS miss,
-                   COALESCE(SUM(tokens_cache_read), 0) AS hit,
-                   COALESCE(SUM(tokens_output), 0) AS output,
-                   COALESCE(SUM(tokens_reasoning), 0) AS reasoning,
-                   COUNT(*) AS sessions
-            FROM \(sessionSource)
-            \(whereClause)
-            GROUP BY provider_id, model_id, variant
-            """,
-            parameters: params
-        ) { stmt in
-            let providerID = text(stmt, 0) ?? "opencode"
-            let modelId = text(stmt, 1) ?? "unknown"
-            let variant = text(stmt, 2) ?? "default"
-            let pricing = pricingLookup["\(providerID)/\(modelId)/\(variant)"] ?? .defaults(providerID: providerID, modelId: modelId, variant: variant)
-            let prices = pricing.price(at: referenceDate)
-            let miss = int(stmt, 2)
-            let hit = int(stmt, 3)
-            let output = int(stmt, 4)
-            let reasoning = int(stmt, 5)
-            return (miss: miss, hit: hit, output: output, reasoning: reasoning, sessions: int(stmt, 6),
-                    missPrice: prices.inputMiss, hitPrice: prices.cacheHit, outputPrice: prices.output, reasoningPrice: prices.reasoning)
-        }
-        guard !rows.isEmpty else {
-            return CostSummary(totalMissTokens: 0, totalHitTokens: 0, totalOutputTokens: 0, totalReasoningTokens: 0, sessionCount: 0, missCost: 0, hitCost: 0, outputCost: 0, reasoningCost: 0)
-        }
-        var totalMiss = 0, totalHit = 0, totalOutput = 0, totalReasoning = 0, totalSessions = 0
-        var missCost = 0.0, hitCost = 0.0, outputCost = 0.0, reasoningCost = 0.0
-        for row in rows {
-            totalMiss += row.miss
-            totalHit += row.hit
-            totalOutput += row.output
-            totalReasoning += row.reasoning
-            totalSessions += row.sessions
-            missCost += Double(row.miss) / 1_000_000 * row.missPrice
-            hitCost += Double(row.hit) / 1_000_000 * row.hitPrice
-            outputCost += Double(row.output) / 1_000_000 * row.outputPrice
-            reasoningCost += Double(row.reasoning) / 1_000_000 * row.reasoningPrice
-        }
-        return CostSummary(totalMissTokens: totalMiss, totalHitTokens: totalHit, totalOutputTokens: totalOutput, totalReasoningTokens: totalReasoning, sessionCount: totalSessions, missCost: missCost, hitCost: hitCost, outputCost: outputCost, reasoningCost: reasoningCost)
+        let breakdown = try fetchModelCostBreakdown(
+            year: year, month: month, day: day,
+            from: startDate, to: endDate,
+            pricingRules: pricingRules,
+            referenceDate: referenceDate
+        )
+        return CostSummary.from(breakdown: breakdown)
     }
 
     func fetchSessions(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, limit: Int = 100, offset: Int = 0) throws -> [Session] {
-        let (whereClause, whereParams) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let keys = dateKeys(year: year, month: month, day: day, from: startDate, to: endDate)
+        let coveredInRange = keys.intersection(covered)
+        if !coveredInRange.isEmpty {
+            // 事件时间口径：时间段内有活动的会话 + 增量值
+            let activeIDs = TokenDeltaTracker.shared.activeSessionIDs(in: coveredInRange)
+            guard !activeIDs.isEmpty else { return [] }
+            let deltas = TokenDeltaTracker.shared.sessionDelta(in: coveredInRange)
+            let placeholders = Array(repeating: "?", count: activeIDs.count).joined(separator: ",")
+            let rows = try readAll(
+                """
+                SELECT id, slug, title,
+                       json_extract(model, '$.providerID'),
+                       json_extract(model, '$.id'),
+                       CASE WHEN json_extract(model, '$.variant') = 'max' THEN 'default' ELSE COALESCE(json_extract(model, '$.variant'), 'default') END,
+                       json_extract(metadata, '$.project'),
+                       time_created
+                FROM \(sessionSource)
+                WHERE id IN (\(placeholders))
+                ORDER BY time_created DESC
+                """,
+                parameters: Array(activeIDs)
+            ) { stmt in
+                (id: text(stmt, 0) ?? "", slug: text(stmt, 1), title: text(stmt, 2),
+                 providerID: text(stmt, 3) ?? "opencode", modelId: text(stmt, 4) ?? "unknown",
+                 variant: text(stmt, 5) ?? "default", project: text(stmt, 6),
+                 timeCreated: Date(timeIntervalSince1970: TimeInterval(int64(stmt, 7)) / 1000))
+            }
+            var result: [Session] = []
+            for row in rows {
+                let delta = deltas[row.id] ?? .zero
+                result.append(Session(
+                    id: row.id,
+                    slug: row.slug,
+                    title: row.title,
+                    tokensInput: delta.tokens.tokensInput,
+                    tokensOutput: delta.tokens.tokensOutput,
+                    tokensReasoning: delta.tokens.tokensReasoning,
+                    tokensCacheRead: delta.tokens.tokensCacheRead,
+                    tokensCacheWrite: delta.tokens.tokensCacheWrite,
+                    cost: delta.cost,
+                    providerID: row.providerID,
+                    modelId: row.modelId,
+                    modelVariant: row.variant,
+                    timeCreated: row.timeCreated,
+                    project: row.project
+                ))
+            }
+            return result
+        }
         return try readAll(
             """
             SELECT id, slug, title,
@@ -350,11 +442,11 @@ final class DatabaseService {
                    cost, model, time_created,
                    json_extract(metadata, '$.project') AS project
             FROM \(sessionSource)
-            \(whereClause)
+            \(buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate).0)
             ORDER BY time_created DESC
             LIMIT ? OFFSET ?
             """,
-            parameters: whereParams + [Int64(limit), Int64(offset)]
+            parameters: buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate).1 + [Int64(limit), Int64(offset)]
         ) { stmt in
             let modelJSON = text(stmt, 9) ?? "{}"
             let modelData = modelJSON.data(using: .utf8)
@@ -381,77 +473,182 @@ final class DatabaseService {
     // MARK: - Agent / Project / Efficiency Stats
 
     func fetchAgentUsage(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> [AgentUsage] {
-        let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
-        return try readAll(
-            """
-            SELECT COALESCE(NULLIF(agent, ''), 'unknown'),
-                   COUNT(*),
-                   COALESCE(SUM(tokens_input), 0),
-                   COALESCE(SUM(tokens_output), 0),
-                   COALESCE(SUM(tokens_reasoning), 0),
-                   COALESCE(SUM(tokens_cache_read), 0),
-                   COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0),
-                   COALESCE(SUM(cost), 0)
-            FROM \(sessionSource)
-            \(whereClause)
-            GROUP BY agent
-            ORDER BY COUNT(*) DESC
-            """,
-            parameters: params
-        ) { stmt in
-            AgentUsage(
-                agentName: text(stmt, 0) ?? "unknown",
-                sessions: int(stmt, 1),
-                inputTokens: int(stmt, 2),
-                outputTokens: int(stmt, 3),
-                reasoningTokens: int(stmt, 4),
-                cacheReadTokens: int(stmt, 5),
-                totalTokens: int(stmt, 6),
-                cost: double(stmt, 7)
-            )
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let keys = dateKeys(year: year, month: month, day: day, from: startDate, to: endDate)
+        var map: [String: AgentUsage] = [:]
+        for (dateKey, agents) in TokenDeltaTracker.shared.agentConsumption where keys.contains(dateKey) {
+            for (agent, tokens) in agents {
+                let costs = TokenDeltaTracker.shared.agentCostConsumption[dateKey]?[agent] ?? 0
+                let existing = map[agent]
+                map[agent] = AgentUsage(
+                    agentName: agent,
+                    sessions: (existing?.sessions ?? 0) + 1,
+                    inputTokens: (existing?.inputTokens ?? 0) + tokens.tokensInput,
+                    outputTokens: (existing?.outputTokens ?? 0) + tokens.tokensOutput,
+                    reasoningTokens: (existing?.reasoningTokens ?? 0) + tokens.tokensReasoning,
+                    cacheReadTokens: (existing?.cacheReadTokens ?? 0) + tokens.tokensCacheRead,
+                    totalTokens: (existing?.totalTokens ?? 0) + tokens.total,
+                    cost: (existing?.cost ?? 0) + costs
+                )
+            }
         }
+        let coveredInRange = keys.intersection(covered)
+        if coveredInRange.isEmpty {
+            let sql = try readAll(
+                """
+                SELECT COALESCE(NULLIF(agent, ''), 'unknown'),
+                       COUNT(*),
+                       COALESCE(SUM(tokens_input), 0),
+                       COALESCE(SUM(tokens_output), 0),
+                       COALESCE(SUM(tokens_reasoning), 0),
+                       COALESCE(SUM(tokens_cache_read), 0),
+                       COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0),
+                       COALESCE(SUM(cost), 0)
+                FROM \(sessionSource)
+                \(buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate).0)
+                GROUP BY agent
+                ORDER BY COUNT(*) DESC
+                """,
+                parameters: buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate).1
+            ) { stmt in
+                AgentUsage(
+                    agentName: text(stmt, 0) ?? "unknown",
+                    sessions: int(stmt, 1),
+                    inputTokens: int(stmt, 2),
+                    outputTokens: int(stmt, 3),
+                    reasoningTokens: int(stmt, 4),
+                    cacheReadTokens: int(stmt, 5),
+                    totalTokens: int(stmt, 6),
+                    cost: double(stmt, 7)
+                )
+            }
+            for item in sql {
+                map[item.agentName] = item
+            }
+        }
+        return map.values.sorted { $0.sessions > $1.sessions }
     }
 
     func fetchProjectUsage(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> [ProjectUsage] {
-        let (rawWhere, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
-        let whereClause = rawWhere.isEmpty ? "" : rawWhere.replacingOccurrences(of: "time_created", with: "s.time_created")
-        return try readAll(
-            """
-            SELECT p.id,
-                   p.name,
-                   p.worktree,
-                   COUNT(*),
-                   COALESCE(SUM(s.tokens_input), 0),
-                   COALESCE(SUM(s.tokens_output), 0),
-                   COALESCE(SUM(s.tokens_reasoning), 0),
-                   COALESCE(SUM(s.tokens_cache_read), 0),
-                   COALESCE(SUM(s.tokens_input + s.tokens_output + s.tokens_reasoning + s.tokens_cache_read + s.tokens_cache_write), 0),
-                   COALESCE(SUM(s.cost), 0)
-            FROM \(sessionSourceAlias)
-            LEFT JOIN project p ON s.project_id = p.id
-            \(whereClause)
-            GROUP BY p.id
-            ORDER BY COUNT(*) DESC
-            """,
-            parameters: params
-        ) { stmt in
-            ProjectUsage(
-                projectId: text(stmt, 0) ?? "unknown",
-                projectName: text(stmt, 1) ?? "",
-                worktree: text(stmt, 2) ?? "/",
-                sessions: int(stmt, 3),
-                inputTokens: int(stmt, 4),
-                outputTokens: int(stmt, 5),
-                reasoningTokens: int(stmt, 6),
-                cacheReadTokens: int(stmt, 7),
-                totalTokens: int(stmt, 8),
-                cost: double(stmt, 9)
-            )
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let keys = dateKeys(year: year, month: month, day: day, from: startDate, to: endDate)
+        var map: [String: ProjectUsage] = [:]
+        for (dateKey, projects) in TokenDeltaTracker.shared.projectConsumption where keys.contains(dateKey) {
+            for (projectID, tokens) in projects {
+                let costs = TokenDeltaTracker.shared.projectCostConsumption[dateKey]?[projectID] ?? 0
+                let existing = map[projectID]
+                map[projectID] = ProjectUsage(
+                    projectId: projectID,
+                    projectName: existing?.projectName ?? "",
+                    worktree: existing?.worktree ?? "/",
+                    sessions: (existing?.sessions ?? 0) + 1,
+                    inputTokens: (existing?.inputTokens ?? 0) + tokens.tokensInput,
+                    outputTokens: (existing?.outputTokens ?? 0) + tokens.tokensOutput,
+                    reasoningTokens: (existing?.reasoningTokens ?? 0) + tokens.tokensReasoning,
+                    cacheReadTokens: (existing?.cacheReadTokens ?? 0) + tokens.tokensCacheRead,
+                    totalTokens: (existing?.totalTokens ?? 0) + tokens.total,
+                    cost: (existing?.cost ?? 0) + costs
+                )
+            }
         }
+        // 补充项目名（project 表按 id 查询）
+        let ids = Array(map.keys)
+        if !ids.isEmpty {
+            let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+            let names = try readAll(
+                """
+                SELECT id, COALESCE(name, ''), COALESCE(worktree, '/')
+                FROM project
+                WHERE id IN (\(placeholders))
+                """,
+                parameters: ids
+            ) { stmt in
+                (id: text(stmt, 0) ?? "", name: text(stmt, 1) ?? "", worktree: text(stmt, 2) ?? "/")
+            }
+            for row in names {
+                if let item = map[row.id] {
+                    map[row.id] = ProjectUsage(
+                        projectId: item.projectId,
+                        projectName: row.name,
+                        worktree: row.worktree,
+                        sessions: item.sessions,
+                        inputTokens: item.inputTokens,
+                        outputTokens: item.outputTokens,
+                        reasoningTokens: item.reasoningTokens,
+                        cacheReadTokens: item.cacheReadTokens,
+                        totalTokens: item.totalTokens,
+                        cost: item.cost
+                    )
+                }
+            }
+        }
+        let coveredInRange = keys.intersection(covered)
+        if coveredInRange.isEmpty {
+            let (rawWhere, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+            let whereClause = rawWhere.isEmpty ? "" : rawWhere.replacingOccurrences(of: "time_created", with: "s.time_created")
+            let sql = try readAll(
+                """
+                SELECT p.id,
+                       p.name,
+                       p.worktree,
+                       COUNT(*),
+                       COALESCE(SUM(s.tokens_input), 0),
+                       COALESCE(SUM(s.tokens_output), 0),
+                       COALESCE(SUM(s.tokens_reasoning), 0),
+                       COALESCE(SUM(s.tokens_cache_read), 0),
+                       COALESCE(SUM(s.tokens_input + s.tokens_output + s.tokens_reasoning + s.tokens_cache_read + s.tokens_cache_write), 0),
+                       COALESCE(SUM(s.cost), 0)
+                FROM \(sessionSourceAlias)
+                LEFT JOIN project p ON s.project_id = p.id
+                \(whereClause)
+                GROUP BY p.id
+                ORDER BY COUNT(*) DESC
+                """,
+                parameters: params
+            ) { stmt in
+                ProjectUsage(
+                    projectId: text(stmt, 0) ?? "unknown",
+                    projectName: text(stmt, 1) ?? "",
+                    worktree: text(stmt, 2) ?? "/",
+                    sessions: int(stmt, 3),
+                    inputTokens: int(stmt, 4),
+                    outputTokens: int(stmt, 5),
+                    reasoningTokens: int(stmt, 6),
+                    cacheReadTokens: int(stmt, 7),
+                    totalTokens: int(stmt, 8),
+                    cost: double(stmt, 9)
+                )
+            }
+            for item in sql {
+                map[item.projectId] = item
+            }
+        }
+        return map.values.sorted { $0.sessions > $1.sessions }
     }
 
     func fetchEfficiencySummary(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil) throws -> ProductivitySummary {
-        let (whereClause, params) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let keys = dateKeys(year: year, month: month, day: day, from: startDate, to: endDate)
+        let coveredInRange = keys.intersection(covered)
+        if !coveredInRange.isEmpty {
+            var sum = SummaryData.zero
+            var sessionCount = 0
+            for (dateKey, s) in TokenDeltaTracker.shared.dailySummary where keys.contains(dateKey) {
+                sum += s
+                if s.total > 0 { sessionCount += 1 }
+            }
+            var totalTokens = TokenData.zero
+            for (dateKey, tokens) in TokenDeltaTracker.shared.dailyConsumption where keys.contains(dateKey) {
+                totalTokens = totalTokens + tokens
+            }
+            return ProductivitySummary(
+                totalAdditions: sum.additions,
+                totalDeletions: sum.deletions,
+                totalFiles: sum.files,
+                sessionsWithChanges: sessionCount,
+                totalTokens: totalTokens.total
+            )
+        }
         return try readOne(
             """
             SELECT COALESCE(SUM(summary_additions), 0),
@@ -460,9 +657,9 @@ final class DatabaseService {
                    COUNT(*),
                    COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning + tokens_cache_read + tokens_cache_write), 0)
             FROM \(sessionSource)
-            \(whereClause)
+            \(buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate).0)
             """,
-            parameters: params
+            parameters: buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate).1
         ) { stmt in
             ProductivitySummary(
                 totalAdditions: int(stmt, 0),
@@ -475,6 +672,51 @@ final class DatabaseService {
     }
 
     func fetchEfficiencyDetail(year: String? = nil, month: String? = nil, day: String? = nil, from startDate: Date? = nil, to endDate: Date? = nil, limit: Int = 100, offset: Int = 0) throws -> [SessionEfficiency] {
+        let covered = TokenDeltaTracker.shared.coveredDateKeys()
+        let keys = dateKeys(year: year, month: month, day: day, from: startDate, to: endDate)
+        let coveredInRange = keys.intersection(covered)
+        if !coveredInRange.isEmpty {
+            // 事件时间口径：时间段内有活动且产生变更量的会话，显示增量
+            let deltas = TokenDeltaTracker.shared.sessionDelta(in: coveredInRange)
+            let activeIDs = deltas.keys.filter { deltas[$0]?.summary.total ?? 0 > 0 }
+            guard !activeIDs.isEmpty else { return [] }
+            let placeholders = Array(repeating: "?", count: activeIDs.count).joined(separator: ",")
+            let rows = try readAll(
+                """
+                SELECT s.id,
+                       COALESCE(NULLIF(s.title, ''), s.slug, '(无标题)'),
+                       COALESCE(json_extract(s.model, '$.providerID'), 'opencode'),
+                       json_extract(s.model, '$.id'),
+                       COALESCE(NULLIF(s.agent, ''), 'unknown'),
+                       s.time_created
+                FROM \(sessionSourceAlias)
+                WHERE s.id IN (\(placeholders))
+                ORDER BY s.time_created DESC
+                """,
+                parameters: Array(activeIDs)
+            ) { stmt in
+                (id: text(stmt, 0) ?? "", title: text(stmt, 1) ?? "(无标题)",
+                 providerID: text(stmt, 2) ?? "opencode", modelId: text(stmt, 3) ?? "unknown",
+                 agent: text(stmt, 4) ?? "unknown",
+                 timeCreated: Date(timeIntervalSince1970: TimeInterval(int64(stmt, 5)) / 1000))
+            }
+            var result: [SessionEfficiency] = []
+            for row in rows {
+                guard let delta = deltas[row.id] else { continue }
+                result.append(SessionEfficiency(
+                    id: row.id,
+                    title: row.title,
+                    providerID: row.providerID,
+                    modelId: row.modelId,
+                    agent: row.agent,
+                    additions: delta.summary.additions,
+                    deletions: delta.summary.deletions,
+                    files: delta.summary.files,
+                    totalTokens: delta.totalTokens
+                ))
+            }
+            return result
+        }
         let (rawWhere, whereParams) = buildTimeClause(year: year, month: month, day: day, from: startDate, to: endDate)
         let whereClause = rawWhere.isEmpty ? "" : rawWhere.replacingOccurrences(of: "time_created", with: "s.time_created")
         let fullWhere = whereClause.isEmpty
@@ -549,6 +791,36 @@ final class DatabaseService {
                 Int64(endOfNextDay.timeIntervalSince1970 * 1000)
             ]
         )
+    }
+
+    /// 将 year/month/day 或日期范围转换为日期 key 集合（yyyy-MM-dd）
+    private func dateKeys(year: String?, month: String?, day: String?, from startDate: Date?, to endDate: Date?) -> Set<String> {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        var keys: Set<String> = []
+        if let startDate, let endDate {
+            let cal = Calendar.current
+            var current = cal.startOfDay(for: startDate)
+            let end = cal.startOfDay(for: endDate)
+            while current <= end {
+                keys.insert(df.string(from: current))
+                guard let next = cal.date(byAdding: .day, value: 1, to: current) else { break }
+                current = next
+            }
+        } else {
+            // 遍历事件覆盖日期，按年月日精确过滤
+            let covered = TokenDeltaTracker.shared.coveredDateKeys()
+            for key in covered {
+                let parts = key.split(separator: "-")
+                guard parts.count == 3 else { continue }
+                if let year, String(parts[0]) != year { continue }
+                if let month, String(parts[1]) != month { continue }
+                if let day, String(parts[2]) != day { continue }
+                keys.insert(key)
+            }
+        }
+        return keys
     }
 
     // MARK: - Helpers
