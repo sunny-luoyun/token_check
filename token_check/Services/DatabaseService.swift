@@ -340,7 +340,8 @@ final class DatabaseService {
                 providerID: providerID,
                 modelId: modelId,
                 variant: variant,
-                sessions: (existing?.sessions ?? 0) + (sessionCounts[modelKey] ?? 0),
+                // 会话数是整个时间段去重后的活跃会话总数，循环内不累加（首次置值，后续保持）
+                sessions: existing?.sessions ?? (sessionCounts[modelKey] ?? 0),
                 cacheMissTokens: (existing?.cacheMissTokens ?? 0) + tokens.tokensInput,
                 cacheHitTokens: (existing?.cacheHitTokens ?? 0) + tokens.tokensCacheRead,
                 outputTokens: (existing?.outputTokens ?? 0) + tokens.tokensOutput,
@@ -565,7 +566,8 @@ final class DatabaseService {
                 let existing = map[agent]
                 map[agent] = AgentUsage(
                     agentName: agent,
-                    sessions: (existing?.sessions ?? 0) + (sessionCounts[agent] ?? 0),
+                    // 会话数是整个时间段去重后的活跃会话总数，循环内不累加（首次置值，后续保持）
+                    sessions: existing?.sessions ?? (sessionCounts[agent] ?? 0),
                     inputTokens: (existing?.inputTokens ?? 0) + tokens.tokensInput,
                     outputTokens: (existing?.outputTokens ?? 0) + tokens.tokensOutput,
                     reasoningTokens: (existing?.reasoningTokens ?? 0) + tokens.tokensReasoning,
@@ -664,7 +666,8 @@ final class DatabaseService {
                     projectId: projectID,
                     projectName: existing?.projectName ?? "",
                     worktree: existing?.worktree ?? "/",
-                    sessions: (existing?.sessions ?? 0) + (sessionCounts[projectID] ?? 0),
+                    // 会话数是整个时间段去重后的活跃会话总数，循环内不累加（首次置值，后续保持）
+                    sessions: existing?.sessions ?? (sessionCounts[projectID] ?? 0),
                     inputTokens: (existing?.inputTokens ?? 0) + tokens.tokensInput,
                     outputTokens: (existing?.outputTokens ?? 0) + tokens.tokensOutput,
                     reasoningTokens: (existing?.reasoningTokens ?? 0) + tokens.tokensReasoning,
