@@ -113,7 +113,7 @@ class TokenViewModel: ObservableObject {
     }
 
     private func reloadWidgetTimelines() {
-        let allKinds = ["TokenCheckLargeWidgetV3", "TokenCheckLargeWidgetV2", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2", "ClashTrafficWidget"]
+        let allKinds = ["TokenCheckLargeWidgetV3", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2", "ClashTrafficWidget"]
         let step = 0.3
         DispatchQueue.main.async {
             for (index, kind) in allKinds.enumerated() {
