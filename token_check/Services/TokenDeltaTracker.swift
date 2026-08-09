@@ -804,6 +804,138 @@ final class TokenDeltaTracker {
         return result
     }
 
+    // MARK: - 事件时间维度查询（成本/变更量/会话增量/Agent/项目）
+
+    func coveredDateKeys() -> Set<String> { coveredDates }
+
+    func consumptionCost(year: String?, month: String?, day: String?) -> Double {
+        dailyCostConsumption.filter { key, _ in
+            Self.matchesDateFilter(key, year: year, month: month, day: day)
+        }.values.reduce(0, +)
+    }
+
+    func consumptionCost(from startDate: Date, to endDate: Date) -> Double {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        return dailyCostConsumption.filter { keys.contains($0.key) }.values.reduce(0, +)
+    }
+
+    func consumptionCost(days: Int) -> Double {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        guard let startDate = cal.date(byAdding: .day, value: -(days - 1), to: today) else { return 0 }
+        return consumptionCost(from: startDate, to: today)
+    }
+
+    func summary(year: String?, month: String?, day: String?) -> SummaryData {
+        dailySummary.filter { key, _ in
+            Self.matchesDateFilter(key, year: year, month: month, day: day)
+        }.values.reduce(.zero) { $0 + $1 }
+    }
+
+    func summary(from startDate: Date, to endDate: Date) -> SummaryData {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        return dailySummary.filter { keys.contains($0.key) }.values.reduce(.zero) { $0 + $1 }
+    }
+
+    func summary(days: Int) -> SummaryData {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        guard let startDate = cal.date(byAdding: .day, value: -(days - 1), to: today) else { return .zero }
+        return summary(from: startDate, to: today)
+    }
+
+    func dailyConsumptionSeries(from startDate: Date, to endDate: Date) -> [String: TokenData] {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        return dailyConsumption.filter { keys.contains($0.key) }
+    }
+
+    func dailyCostSeries(from startDate: Date, to endDate: Date) -> [String: Double] {
+        let keys = dateKeysInRange(from: startDate, to: endDate)
+        return dailyCostConsumption.filter { keys.contains($0.key) }
+    }
+
+    func sessionDelta(in dateKeys: Set<String>) -> [String: SessionDelta] {
+        var result: [String: SessionDelta] = [:]
+        for (sessionID, deltas) in sessionDailyDelta {
+            for (dateKey, delta) in deltas where dateKeys.contains(dateKey) {
+                result[sessionID] = (result[sessionID] ?? .zero) + delta
+            }
+        }
+        return result
+    }
+
+    func activeSessionIDs(in dateKeys: Set<String>) -> Set<String> {
+        var result: Set<String> = []
+        for (sessionID, days) in sessionActiveDays where !days.isDisjoint(with: dateKeys) {
+            result.insert(sessionID)
+        }
+        return result
+    }
+
+    func activeProjectIDs(in dateKeys: Set<String>) -> Set<String> {
+        var result: Set<String> = []
+        for (dateKey, projects) in dailyActiveProjects where dateKeys.contains(dateKey) {
+            result.formUnion(projects)
+        }
+        return result
+    }
+
+    func activeSessionCount(year: String?, month: String?, day: String?) -> Int {
+        var count = 0
+        for (dateKey, sessions) in dailyActiveSessions where Self.matchesDateFilter(dateKey, year: year, month: month, day: day) {
+            count += sessions.count
+        }
+        return count
+    }
+
+    func activeProjectCount(year: String?, month: String?, day: String?) -> Int {
+        var result: Set<String> = []
+        for (dateKey, projects) in dailyActiveProjects where Self.matchesDateFilter(dateKey, year: year, month: month, day: day) {
+            result.formUnion(projects)
+        }
+        return result.count
+    }
+
+    func agentConsumption(year: String?, month: String?, day: String?) -> [String: TokenData] {
+        var result: [String: TokenData] = [:]
+        for (dateKey, agents) in agentConsumption where Self.matchesDateFilter(dateKey, year: year, month: month, day: day) {
+            for (agent, tokens) in agents {
+                result[agent] = (result[agent] ?? .zero) + tokens
+            }
+        }
+        return result
+    }
+
+    func projectConsumption(year: String?, month: String?, day: String?) -> [String: TokenData] {
+        var result: [String: TokenData] = [:]
+        for (dateKey, projects) in projectConsumption where Self.matchesDateFilter(dateKey, year: year, month: month, day: day) {
+            for (projectID, tokens) in projects {
+                result[projectID] = (result[projectID] ?? .zero) + tokens
+            }
+        }
+        return result
+    }
+
+    func agentCostConsumption(year: String?, month: String?, day: String?) -> [String: Double] {
+        var result: [String: Double] = [:]
+        for (dateKey, agents) in agentCostConsumption where Self.matchesDateFilter(dateKey, year: year, month: month, day: day) {
+            for (agent, cost) in agents {
+                result[agent] = (result[agent] ?? 0) + cost
+            }
+        }
+        return result
+    }
+
+    func projectCostConsumption(year: String?, month: String?, day: String?) -> [String: Double] {
+        var result: [String: Double] = [:]
+        for (dateKey, projects) in projectCostConsumption where Self.matchesDateFilter(dateKey, year: year, month: month, day: day) {
+            for (projectID, cost) in projects {
+                result[projectID] = (result[projectID] ?? 0) + cost
+            }
+        }
+        return result
+    }
+
     private static func matchesDateFilter(_ dateKey: String, year: String?, month: String?, day: String?) -> Bool {
         let parts = dateKey.split(separator: "-")
         guard parts.count == 3 else { return false }
