@@ -506,6 +506,7 @@ struct MonthHeatmapEntryView: View {
                 }
             }
         }
+        .accessibilityHidden(true)
         .padding(.horizontal, 12)
     }
 
@@ -791,10 +792,13 @@ struct LargeWidgetEntryView: View {
 
             if chartRange == "1h" {
                 hourlyChartView(usage)
+                    .accessibilityHidden(true)
             } else if chartRange == "30d" {
                 dailyChartView(usage, days: 30)
+                    .accessibilityHidden(true)
             } else {
                 dailyChartView(usage, days: 7)
+                    .accessibilityHidden(true)
             }
         }
     }
@@ -937,6 +941,7 @@ struct LargeWidgetEntryView: View {
                         }
                     }
                 }
+                .accessibilityHidden(true)
             }
             .padding(.horizontal, 6)
 
