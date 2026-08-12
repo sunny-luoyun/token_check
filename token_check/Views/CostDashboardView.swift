@@ -13,14 +13,32 @@ struct CostDashboardView: View {
                 errorView(error)
             } else if let summary = viewModel.summary {
                 VStack(spacing: 0) {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            timeFilterBar
-                                .padding(.horizontal)
-                                .padding(.vertical, 8)
+                    PageHeaderView(
+                        title: "费用总览",
+                        subtitle: headerSubtitle
+                    ) {
+                        HStack(spacing: 8) {
+                            TimeFilterView(
+                                years: viewModel.availableYears,
+                                months: viewModel.availableMonths,
+                                days: viewModel.availableDays,
+                                selectedYear: $viewModel.selectedYear,
+                                selectedMonth: $viewModel.selectedMonth,
+                                selectedDay: $viewModel.selectedDay,
+                                filterMode: $viewModel.filterMode,
+                                startDate: $viewModel.startDate,
+                                endDate: $viewModel.endDate,
+                                onChange: { viewModel.applyFilter() }
+                            )
+                            headerToolbarButtons
+                        }
+                    }
 
+                    Divider()
+
+                    ScrollView {
+                        VStack(spacing: 12) {
                             summaryCards(summary: summary)
-                                .padding(.horizontal)
                                 .overlay(alignment: .topTrailing) {
                                     if viewModel.hasRollback {
                                         HStack(spacing: 2) {
@@ -35,12 +53,9 @@ struct CostDashboardView: View {
                                     }
                                 }
 
-                            Divider()
-                                .padding(.vertical, 8)
-
                             costTable
-                                .padding(.horizontal)
                         }
+                        .padding(16)
                     }
 
                     costFooter(summary: summary)
@@ -49,26 +64,6 @@ struct CostDashboardView: View {
             }
         }
         .navigationTitle("费用")
-        .toolbar {
-            ToolbarItem {
-                Button(action: { viewModel.applyFilter() }) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .disabled(viewModel.isLoading)
-            }
-            ToolbarItem {
-                Toggle(isOn: $viewModel.showRollback) {
-                    Image(systemName: "arrow.counterclockwise.circle.fill")
-                        .foregroundStyle(viewModel.showRollback ? .red : .secondary)
-                }
-                .toggleStyle(.button)
-                .help("显示回滚消耗")
-                .disabled(!viewModel.hasRollback)
-                .onChange(of: viewModel.showRollback) { _, _ in
-                    viewModel.applyFilter()
-                }
-            }
-        }
         .onAppear {
             viewModel.load()
         }
@@ -110,33 +105,61 @@ struct CostDashboardView: View {
             .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
-    private var timeFilterBar: some View {
-        HStack {
-            Spacer()
-            TimeFilterView(
-                years: viewModel.availableYears,
-                months: viewModel.availableMonths,
-                days: viewModel.availableDays,
-                selectedYear: $viewModel.selectedYear,
-                selectedMonth: $viewModel.selectedMonth,
-                selectedDay: $viewModel.selectedDay,
-                filterMode: $viewModel.filterMode,
-                startDate: $viewModel.startDate,
-                endDate: $viewModel.endDate,
-                onChange: { viewModel.applyFilter() }
-            )
-            Spacer()
+    private var headerSubtitle: String {
+        let v = viewModel
+        if v.filterMode == .range {
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+            return "\(df.string(from: v.startDate)) ~ \(df.string(from: v.endDate))"
+        }
+        if let y = v.selectedYear {
+            if let m = v.selectedMonth {
+                return "\(y)年 \(Int(m) ?? 0)月"
+            }
+            return "\(y)年"
+        }
+        return "全部时间"
+    }
+
+    private var headerToolbarButtons: some View {
+        HStack(spacing: 6) {
+            Button(action: { viewModel.applyFilter() }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption)
+                    .padding(6)
+                    .background(.quaternary.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isLoading)
+            .help("刷新")
+
+            Toggle(isOn: $viewModel.showRollback) {
+                Image(systemName: "arrow.counterclockwise.circle.fill")
+                    .font(.caption)
+                    .padding(6)
+                    .background(.quaternary.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .toggleStyle(.button)
+            .buttonStyle(.plain)
+            .help("显示回滚消耗")
+            .disabled(!viewModel.hasRollback)
+            .onChange(of: viewModel.showRollback) { _, _ in
+                viewModel.applyFilter()
+            }
         }
     }
 
     private func summaryCards(summary: CostSummary) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 12) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 5), spacing: 12) {
             StatCardView(
                 title: "总费用",
                 value: formatCost(summary.totalCost),
                 subtitle: "\(summary.sessionCount) 个会话",
                 icon: "yensign.circle.fill",
-                color: .red
+                color: theme.cost,
+                emphasized: true
             )
             .transition(.scale.combined(with: .opacity))
 
@@ -145,7 +168,7 @@ struct CostDashboardView: View {
                 value: formatTokens(summary.totalMissTokens),
                 subtitle: formatCost(summary.missCost),
                 icon: "arrowtriangle.down.circle.fill",
-                color: .orange
+                color: theme.inputMiss
             )
             .transition(.scale.combined(with: .opacity))
 
@@ -154,7 +177,7 @@ struct CostDashboardView: View {
                 value: formatTokens(summary.totalHitTokens),
                 subtitle: formatCost(summary.hitCost),
                 icon: "memorychip.fill",
-                color: .green
+                color: theme.cacheHit
             )
             .transition(.scale.combined(with: .opacity))
 
@@ -163,7 +186,7 @@ struct CostDashboardView: View {
                 value: formatTokens(summary.totalOutputTokens),
                 subtitle: formatCost(summary.outputCost),
                 icon: "arrowtriangle.up.circle.fill",
-                color: .blue
+                color: theme.output
             )
             .transition(.scale.combined(with: .opacity))
 
@@ -172,7 +195,7 @@ struct CostDashboardView: View {
                 value: formatTokens(summary.totalReasoningTokens),
                 subtitle: formatCost(summary.reasoningCost),
                 icon: "brain.head.profile.fill",
-                color: .purple
+                color: theme.reasoning
             )
             .transition(.scale.combined(with: .opacity))
         }
@@ -180,13 +203,23 @@ struct CostDashboardView: View {
     }
 
     private var costTable: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("按 Model 分解")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("按 Model 分解")
+                    .font(.headline)
+                Spacer()
+            }
 
-                CostBreakdownTable(breakdown: viewModel.modelBreakdown)
-                    .frame(minHeight: 100, idealHeight: 400)
+            if !viewModel.modelBreakdown.isEmpty {
+                ModelBreakdownStackedChart(modelUsage: viewModel.modelBreakdown)
+                    .frame(height: CGFloat(max(viewModel.modelBreakdown.count * 40, 120)))
+            }
+
+            CostBreakdownTable(breakdown: viewModel.modelBreakdown)
+                .frame(minHeight: 100, idealHeight: 360)
         }
+        .padding(16)
+        .mainContentCard()
     }
 
     private func costFooter(summary: CostSummary) -> some View {

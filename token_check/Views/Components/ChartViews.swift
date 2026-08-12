@@ -87,3 +87,63 @@ struct DailyTrendChart: View {
         }
     }
 }
+
+struct ModelBreakdownStackedChart: View {
+    let modelUsage: [ModelCostBreakdown]
+
+    @Environment(\.appTheme) var theme
+    @State private var isAnimated = false
+
+    var body: some View {
+        Chart {
+            ForEach(modelUsage) { item in
+                BarMark(
+                    x: .value("Tokens", item.cacheMissTokens),
+                    y: .value("Model", item.displayName)
+                )
+                .foregroundStyle(by: .value("Type", "Input"))
+                .opacity(isAnimated ? 1 : 0)
+
+                BarMark(
+                    x: .value("Tokens", item.cacheHitTokens),
+                    y: .value("Model", item.displayName)
+                )
+                .foregroundStyle(by: .value("Type", "Cache"))
+                .opacity(isAnimated ? 1 : 0)
+
+                BarMark(
+                    x: .value("Tokens", item.outputTokens),
+                    y: .value("Model", item.displayName)
+                )
+                .foregroundStyle(by: .value("Type", "Output"))
+                .opacity(isAnimated ? 1 : 0)
+
+                BarMark(
+                    x: .value("Tokens", item.reasoningTokens),
+                    y: .value("Model", item.displayName)
+                )
+                .foregroundStyle(by: .value("Type", "Reasoning"))
+                .opacity(isAnimated ? 1 : 0)
+            }
+        }
+        .chartForegroundStyleScale([
+            "Input": theme.inputMiss,
+            "Cache": theme.cacheHit,
+            "Output": theme.output,
+            "Reasoning": theme.reasoning
+        ])
+        .chartXAxisLabel("Tokens")
+        .frame(height: CGFloat(max(modelUsage.count * 40, 120)))
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.6).delay(0.1)) {
+                isAnimated = true
+            }
+        }
+        .onChange(of: modelUsage.count) { _, _ in
+            isAnimated = false
+            withAnimation(.easeInOut(duration: 0.6).delay(0.1)) {
+                isAnimated = true
+            }
+        }
+    }
+}
