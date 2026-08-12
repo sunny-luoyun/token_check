@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SessionListView: View {
     @StateObject private var viewModel = SessionListViewModel()
+    @State private var hoveredSessionID: Session.ID?
+
     @Environment(\.appTheme) var theme
 
     var body: some View {
@@ -27,83 +29,153 @@ struct SessionListView: View {
                 errorView(error)
             } else {
                 VStack(spacing: 0) {
-                    timeFilterBar
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
+                    PageHeaderView(
+                        title: "会话历史",
+                        subtitle: "\(viewModel.filteredSessions.count) 个会话"
+                    ) {
+                        HStack(spacing: 8) {
+                            searchField
 
-                    Table(viewModel.filteredSessions) {
-                        TableColumn("时间") { session in
-                            Text(session.timeCreated, style: .date)
-                                .font(.caption)
-                        }
-                        .width(100)
+                            TimeFilterView(
+                                years: viewModel.availableYears,
+                                months: viewModel.availableMonths,
+                                days: viewModel.availableDays,
+                                selectedYear: $viewModel.selectedYear,
+                                selectedMonth: $viewModel.selectedMonth,
+                                selectedDay: $viewModel.selectedDay,
+                                filterMode: $viewModel.filterMode,
+                                startDate: $viewModel.startDate,
+                                endDate: $viewModel.endDate,
+                                onChange: { viewModel.applyFilter() }
+                            )
 
-                        TableColumn("标题") { session in
-                            Text(session.title ?? session.slug ?? "(无标题)")
-                                .lineLimit(1)
-                        }
+                            Button(action: viewModel.applyFilter) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(.quaternary.opacity(0.3))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(viewModel.isLoading)
+                            .help("刷新")
 
-                        TableColumn("模型") { session in
-                            Text(session.modelDisplayName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Toggle(isOn: $viewModel.showRollback) {
+                                Image(systemName: "arrow.counterclockwise.circle.fill")
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(.quaternary.opacity(0.3))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                            .toggleStyle(.button)
+                            .buttonStyle(.plain)
+                            .help("显示回滚消耗")
+                            .disabled(!viewModel.hasSessionRollback)
+                            .onChange(of: viewModel.showRollback) { _, _ in
+                                viewModel.applyFilter()
+                            }
                         }
-                        .width(160)
-
-                        TableColumn("Input") { session in
-                            let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
-                            let adjusted = session.tokensInput + (rollback?.asTokenData.tokensInput ?? 0)
-                            Text(formatNumber(adjusted))
-                                .font(.caption.monospaced())
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        .width(90)
-
-                        TableColumn("Output") { session in
-                            let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
-                            let adjusted = session.tokensOutput + (rollback?.asTokenData.tokensOutput ?? 0)
-                            Text(formatNumber(adjusted))
-                                .font(.caption.monospaced())
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        .width(90)
-
-                        TableColumn("Cost") { session in
-                            Text(String(format: "$%.4f", session.cost))
-                                .font(.caption.monospaced())
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        .width(80)
                     }
+
+                    Divider()
+
+                    sessionTable
+                        .padding(16)
                 }
             }
         }
         .navigationTitle("会话历史")
-        .searchable(text: $viewModel.searchText, prompt: "搜索标题、模型或项目")
-        .toolbar {
-            ToolbarItem {
-                Button(action: viewModel.applyFilter) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .disabled(viewModel.isLoading)
-            }
-            ToolbarItem {
-                Toggle(isOn: $viewModel.showRollback) {
-                    Image(systemName: "arrow.counterclockwise.circle.fill")
-                        .foregroundStyle(viewModel.showRollback ? .red : .secondary)
-                }
-                .toggleStyle(.button)
-                .help("显示回滚消耗")
-                .disabled(!viewModel.hasSessionRollback)
-                .onChange(of: viewModel.showRollback) { _, _ in
-                    viewModel.applyFilter()
-                }
-            }
-        }
         .onAppear {
             viewModel.load()
         }
         .animation(.easeInOut(duration: 0.25), value: viewModel.filteredSessions.count)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("搜索标题、模型或项目", text: $viewModel.searchText)
+                .textFieldStyle(.plain)
+                .font(.caption)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(.quaternary.opacity(0.3))
+        )
+        .frame(width: 200)
+    }
+
+    private var sessionTable: some View {
+        Table(viewModel.filteredSessions) {
+            TableColumn("时间") { session in
+                Text(session.timeCreated, style: .date)
+                    .font(.caption)
+                    .onHover { hovering in
+                        hoveredSessionID = hovering ? session.id : nil
+                    }
+            }
+            .width(100)
+
+            TableColumn("标题") { session in
+                Text(session.title ?? session.slug ?? "(无标题)")
+                    .lineLimit(1)
+                    .foregroundStyle(hoveredSessionID == session.id ? Color.accentColor : .primary)
+                    .onHover { hovering in
+                        hoveredSessionID = hovering ? session.id : nil
+                    }
+            }
+
+            TableColumn("模型") { session in
+                Text(session.modelDisplayName)
+                    .font(.caption)
+                    .foregroundStyle(hoveredSessionID == session.id ? Color.accentColor : .secondary)
+                    .onHover { hovering in
+                        hoveredSessionID = hovering ? session.id : nil
+                    }
+            }
+            .width(160)
+
+            TableColumn("Input") { session in
+                let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
+                let adjusted = session.tokensInput + (rollback?.asTokenData.tokensInput ?? 0)
+                Text(formatNumber(adjusted))
+                    .font(.caption.monospaced())
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .onHover { hovering in
+                        hoveredSessionID = hovering ? session.id : nil
+                    }
+            }
+            .width(90)
+
+            TableColumn("Output") { session in
+                let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
+                let adjusted = session.tokensOutput + (rollback?.asTokenData.tokensOutput ?? 0)
+                Text(formatNumber(adjusted))
+                    .font(.caption.monospaced())
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .onHover { hovering in
+                        hoveredSessionID = hovering ? session.id : nil
+                    }
+            }
+            .width(90)
+
+            TableColumn("Cost") { session in
+                Text(String(format: "$%.4f", session.cost))
+                    .font(.caption.monospaced())
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .onHover { hovering in
+                        hoveredSessionID = hovering ? session.id : nil
+                    }
+            }
+            .width(80)
+        }
+        .alternatingRowBackgrounds()
+        .frame(minHeight: 200, maxHeight: .infinity)
+        .mainContentCard()
     }
 
     private func errorView(_ error: String) -> some View {
@@ -121,25 +193,6 @@ struct SessionListView: View {
                 }
             }
             .transition(.opacity.combined(with: .scale(scale: 0.95)))
-    }
-
-    private var timeFilterBar: some View {
-        HStack {
-            Spacer()
-            TimeFilterView(
-                years: viewModel.availableYears,
-                months: viewModel.availableMonths,
-                days: viewModel.availableDays,
-                selectedYear: $viewModel.selectedYear,
-                selectedMonth: $viewModel.selectedMonth,
-                selectedDay: $viewModel.selectedDay,
-                filterMode: $viewModel.filterMode,
-                startDate: $viewModel.startDate,
-                endDate: $viewModel.endDate,
-                onChange: { viewModel.applyFilter() }
-            )
-            Spacer()
-        }
     }
 
     private func formatNumber(_ n: Int) -> String {
