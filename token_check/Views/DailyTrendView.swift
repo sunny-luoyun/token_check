@@ -26,6 +26,26 @@ struct DailyTrendView: View {
                         headerToolbar
                     }
 
+                    if viewModel.isMonthlyMode || viewModel.isCustomMode {
+                        HStack {
+                            TimeFilterView(
+                                years: viewModel.availableYears,
+                                months: viewModel.availableMonths,
+                                days: viewModel.availableDays,
+                                selectedYear: $viewModel.selectedYear,
+                                selectedMonth: $viewModel.selectedMonth,
+                                selectedDay: $viewModel.selectedDay,
+                                filterMode: viewModel.isCustomMode ? .constant(.range) : $viewModel.filterMode,
+                                startDate: $viewModel.startDate,
+                                endDate: $viewModel.endDate,
+                                onChange: { viewModel.applyFilter() }
+                            )
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                    }
+
                     Divider()
 
                     ScrollView {
@@ -35,11 +55,11 @@ struct DailyTrendView: View {
                             if viewModel.rolledBackTotal > 0 {
                                 HStack {
                                     Image(systemName: "arrow.counterclockwise.circle.fill")
-                                        .foregroundStyle(.red)
+                                        .foregroundStyle(theme.rollback)
                                         .font(.caption2)
                                     Text("含回滚 +\(formatTokens(viewModel.rolledBackTotal))")
                                         .font(.caption2)
-                                        .foregroundStyle(.red)
+                                        .foregroundStyle(theme.rollback)
                                     Spacer()
                                 }
                             }
@@ -117,24 +137,9 @@ struct DailyTrendView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 360)
+            .frame(width: 240)
             .onChange(of: viewModel.timeMode) { _ in
                 viewModel.applyFilter()
-            }
-
-            if viewModel.isMonthlyMode || viewModel.isCustomMode {
-                TimeFilterView(
-                    years: viewModel.availableYears,
-                    months: viewModel.availableMonths,
-                    days: viewModel.availableDays,
-                    selectedYear: $viewModel.selectedYear,
-                    selectedMonth: $viewModel.selectedMonth,
-                    selectedDay: $viewModel.selectedDay,
-                    filterMode: viewModel.isCustomMode ? .constant(.range) : $viewModel.filterMode,
-                    startDate: $viewModel.startDate,
-                    endDate: $viewModel.endDate,
-                    onChange: { viewModel.applyFilter() }
-                )
             }
 
             Spacer()
@@ -145,7 +150,7 @@ struct DailyTrendView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 380)
+            .frame(width: 280)
 
             Picker("模式", selection: $viewModel.chartMode) {
                 ForEach(DailyTrendViewModel.ChartMode.allCases, id: \.self) { mode in
@@ -153,7 +158,7 @@ struct DailyTrendView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 160)
+            .frame(width: 140)
 
             Button(action: { viewModel.applyFilter() }) {
                 Image(systemName: "arrow.clockwise")

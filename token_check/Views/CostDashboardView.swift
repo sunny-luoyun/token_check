@@ -44,10 +44,10 @@ struct CostDashboardView: View {
                                         HStack(spacing: 2) {
                                             Image(systemName: "arrow.counterclockwise.circle.fill")
                                                 .font(.caption)
-                                                .foregroundStyle(.red)
+                                                .foregroundStyle(theme.rollback)
                                             Text("+\(formatTokens(viewModel.rollbackTotal))")
                                                 .font(.caption2.monospaced())
-                                                .foregroundStyle(.red)
+                                                .foregroundStyle(theme.rollback)
                                         }
                                         .offset(x: -4, y: 4)
                                     }
@@ -137,6 +137,7 @@ struct CostDashboardView: View {
             Toggle(isOn: $viewModel.showRollback) {
                 Image(systemName: "arrow.counterclockwise.circle.fill")
                     .font(.caption)
+                    .foregroundStyle(viewModel.showRollback ? theme.rollback : .secondary)
                     .padding(6)
                     .background(.quaternary.opacity(0.3))
                     .clipShape(RoundedRectangle(cornerRadius: 6))

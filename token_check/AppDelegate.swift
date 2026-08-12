@@ -65,8 +65,8 @@ final class MainPanelController: NSObject, NSWindowDelegate {
         window.contentViewController = hostingController
         window.identifier = Self.mainWindowIdentifier
         window.title = "Token Check"
-        window.setContentSize(NSSize(width: 800, height: 600))
-        window.minSize = NSSize(width: 800, height: 500)
+        window.setContentSize(NSSize(width: 1100, height: 720))
+        window.minSize = NSSize(width: 900, height: 560)
         window.center()
         window.isReleasedWhenClosed = false
         window.isRestorable = false

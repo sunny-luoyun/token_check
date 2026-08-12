@@ -63,6 +63,7 @@ struct SessionListView: View {
                             Toggle(isOn: $viewModel.showRollback) {
                                 Image(systemName: "arrow.counterclockwise.circle.fill")
                                     .font(.caption)
+                                    .foregroundStyle(viewModel.showRollback ? theme.rollback : .secondary)
                                     .padding(6)
                                     .background(.quaternary.opacity(0.3))
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
