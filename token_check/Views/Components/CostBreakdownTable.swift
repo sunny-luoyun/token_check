@@ -9,14 +9,14 @@ struct CostBreakdownTable: View {
                 Text(item.displayName)
                     .font(.caption.weight(.medium))
             }
-            .width(min: 100, ideal: 200, max: 400)
+            .width(min: 100, ideal: 180, max: 300)
 
             TableColumn("会话数") { item in
                 Text("\(item.sessions)")
                     .font(.caption.monospaced())
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .width(min: 50, ideal: 65, max: 100)
+            .width(min: 45, ideal: 55, max: 90)
 
             TableColumn("输入（未命中）") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -27,7 +27,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.orange)
                 }
             }
-            .width(min: 80, ideal: 130, max: 200)
+            .width(min: 70, ideal: 105, max: 160)
 
             TableColumn("缓存命中") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -38,7 +38,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.green)
                 }
             }
-            .width(min: 80, ideal: 130, max: 200)
+            .width(min: 70, ideal: 105, max: 160)
 
             TableColumn("输出") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -49,7 +49,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.blue)
                 }
             }
-            .width(min: 80, ideal: 130, max: 200)
+            .width(min: 70, ideal: 105, max: 160)
 
             TableColumn("推理") { item in
                 VStack(alignment: .trailing, spacing: 2) {
@@ -60,7 +60,7 @@ struct CostBreakdownTable: View {
                         .foregroundStyle(.purple)
                 }
             }
-            .width(min: 80, ideal: 130, max: 200)
+            .width(min: 70, ideal: 105, max: 160)
 
             TableColumn("总费用") { item in
                 Text(formatCost(item.totalCost))
@@ -68,7 +68,7 @@ struct CostBreakdownTable: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .foregroundStyle(item.totalCost > 0 ? .primary : .secondary)
             }
-            .width(min: 70, ideal: 100, max: 150)
+            .width(min: 60, ideal: 85, max: 120)
         }
     }
 
