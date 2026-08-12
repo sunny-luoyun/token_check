@@ -58,7 +58,7 @@ final class MainPanelController: NSObject, NSWindowDelegate {
         }
         let window = MainPanel(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .utilityWindow],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
