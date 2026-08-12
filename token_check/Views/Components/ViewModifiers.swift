@@ -18,6 +18,23 @@ struct CardStyle: ViewModifier {
     }
 }
 
+struct MainContentCard: ViewModifier {
+    @Environment(\.appTheme) var theme
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: theme.radiusMedium)
+                    .fill(theme.surfaceCard)
+                    .shadow(color: .black.opacity(0.05), radius: theme.shadowSmall, y: 2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: theme.radiusMedium)
+                    .stroke(.separator.opacity(0.3), lineWidth: 1)
+            )
+    }
+}
+
 struct CardHoverEffect: ViewModifier {
     @State private var isHovering = false
 
@@ -57,6 +74,10 @@ extension View {
 
     func cardHoverEffect() -> some View {
         modifier(CardHoverEffect())
+    }
+
+    func mainContentCard() -> some View {
+        modifier(MainContentCard())
     }
 
     func metricValue() -> some View {
