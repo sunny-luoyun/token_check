@@ -13,13 +13,45 @@ struct StatsView: View {
                 errorView(error)
             } else {
                 VStack(spacing: 0) {
-                    timeFilterBar
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
+                    PageHeaderView(
+                        title: "统计",
+                        subtitle: segmentSubtitle
+                    ) {
+                        HStack(spacing: 8) {
+                            TimeFilterView(
+                                years: viewModel.availableYears,
+                                months: viewModel.availableMonths,
+                                days: viewModel.availableDays,
+                                selectedYear: $viewModel.selectedYear,
+                                selectedMonth: $viewModel.selectedMonth,
+                                selectedDay: $viewModel.selectedDay,
+                                filterMode: $viewModel.filterMode,
+                                startDate: $viewModel.startDate,
+                                endDate: $viewModel.endDate,
+                                onChange: { viewModel.applyFilter() }
+                            )
+                            Button(action: viewModel.applyFilter) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(.quaternary.opacity(0.3))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(viewModel.isLoading)
+                            .help("刷新")
+                        }
+                    }
 
-                    segmentPicker
-                        .padding(.horizontal)
-                        .padding(.bottom, 8)
+                    Picker("统计维度", selection: $selectedSegment) {
+                        ForEach(StatsSegment.allCases, id: \.self) { seg in
+                            Text(seg.rawValue).tag(seg)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 300, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
 
                     Divider()
 
@@ -36,15 +68,15 @@ struct StatsView: View {
             }
         }
         .navigationTitle("统计")
-        .toolbar {
-            ToolbarItem {
-                Button(action: viewModel.applyFilter) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .disabled(viewModel.isLoading)
-            }
-        }
         .onAppear { viewModel.load() }
+    }
+
+    private var segmentSubtitle: String {
+        switch selectedSegment {
+        case .agent: return "按 Agent 维度统计"
+        case .project: return "按项目维度统计"
+        case .efficiency: return "代码效率统计"
+        }
     }
 
     private var loadingSkeleton: some View {
@@ -82,43 +114,6 @@ struct StatsView: View {
             .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
-    // MARK: - Time Filter
-
-    private var timeFilterBar: some View {
-        HStack {
-            Spacer()
-            TimeFilterView(
-                years: viewModel.availableYears,
-                months: viewModel.availableMonths,
-                days: viewModel.availableDays,
-                selectedYear: $viewModel.selectedYear,
-                selectedMonth: $viewModel.selectedMonth,
-                selectedDay: $viewModel.selectedDay,
-                filterMode: $viewModel.filterMode,
-                startDate: $viewModel.startDate,
-                endDate: $viewModel.endDate,
-                onChange: { viewModel.applyFilter() }
-            )
-            Spacer()
-        }
-    }
-
-    // MARK: - Segment Picker
-
-    private var segmentPicker: some View {
-        HStack {
-            Picker("统计维度", selection: $selectedSegment) {
-                ForEach(StatsSegment.allCases, id: \.self) { seg in
-                    Text(seg.rawValue).tag(seg)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 360, alignment: .leading)
-
-            Spacer()
-        }
-    }
-
     // MARK: - Agent Content
 
     private var agentContent: some View {
@@ -137,7 +132,7 @@ struct StatsView: View {
                     .padding(.top, 8)
 
                 agentTable
-                    .padding(.horizontal)
+                    .padding(16)
             }
         }
     }
@@ -238,6 +233,7 @@ struct StatsView: View {
             .width(90)
         }
         .frame(minHeight: 100, idealHeight: 400)
+        .mainContentCard()
     }
 
     // MARK: - Project Content
@@ -258,7 +254,7 @@ struct StatsView: View {
                     .padding(.top, 8)
 
                 projectTable
-                    .padding(.horizontal)
+                    .padding(16)
             }
         }
     }
@@ -352,6 +348,7 @@ struct StatsView: View {
             .width(90)
         }
         .frame(minHeight: 100, idealHeight: 400)
+        .mainContentCard()
     }
 
     // MARK: - Efficiency Content
@@ -372,7 +369,7 @@ struct StatsView: View {
                     .padding(.top, 8)
 
                 efficiencyTable
-                    .padding(.horizontal)
+                    .padding(16)
             }
         }
     }
@@ -491,6 +488,7 @@ struct StatsView: View {
             .width(80)
         }
         .frame(minHeight: 100, idealHeight: 400)
+        .mainContentCard()
     }
 
     // MARK: - Helpers
