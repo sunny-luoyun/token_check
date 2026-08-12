@@ -118,6 +118,9 @@ struct DailyTrendView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 360)
+            .onChange(of: viewModel.timeMode) { _ in
+                viewModel.applyFilter()
+            }
 
             if viewModel.isMonthlyMode || viewModel.isCustomMode {
                 TimeFilterView(
