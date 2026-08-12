@@ -18,47 +18,38 @@ struct DailyTrendView: View {
             } else if let error = viewModel.error {
                 errorView(error)
             } else {
-                timeFilterBar
-                    .padding(.horizontal)
-
-                metricFilterBar
-                    .padding(.horizontal)
-
-                chartModeBar
-                    .padding(.horizontal)
-
-                chartSection
-                    .padding(.horizontal)
-
-                modelLegend
-                    .padding(.horizontal)
-
-                if viewModel.rolledBackTotal > 0 {
-                    HStack {
-                        Image(systemName: "arrow.counterclockwise.circle.fill")
-                            .foregroundStyle(.red)
-                            .font(.caption2)
-                        Text("含回滚 +\(formatTokens(viewModel.rolledBackTotal))")
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                        Spacer()
+                VStack(spacing: 0) {
+                    PageHeaderView(
+                        title: "趋势",
+                        subtitle: headerSubtitle
+                    ) {
+                        headerToolbar
                     }
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
+
+                    Divider()
+
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            chartCard
+
+                            if viewModel.rolledBackTotal > 0 {
+                                HStack {
+                                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                                        .foregroundStyle(.red)
+                                        .font(.caption2)
+                                    Text("含回滚 +\(formatTokens(viewModel.rolledBackTotal))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.red)
+                                    Spacer()
+                                }
+                            }
+                        }
+                        .padding(16)
+                    }
                 }
             }
         }
         .navigationTitle("趋势")
-        .toolbar {
-            ToolbarItem {
-                Button(action: {
-                    viewModel.applyFilter()
-                }) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .disabled(viewModel.isLoading)
-            }
-        }
         .onAppear {
             viewModel.load()
         }
@@ -101,20 +92,32 @@ struct DailyTrendView: View {
             .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
-    // MARK: - Time Filter
+    // MARK: - Header
 
-    private var timeFilterBar: some View {
-        HStack {
+    private var headerSubtitle: String {
+        let v = viewModel
+        if v.isMonthlyMode || v.isCustomMode {
+            if v.isCustomMode {
+                let df = DateFormatter()
+                df.dateFormat = "yyyy-MM-dd"
+                return "\(df.string(from: v.startDate)) ~ \(df.string(from: v.endDate))"
+            }
+            if let y = v.selectedYear, let m = v.selectedMonth {
+                return "\(y)年 \(Int(m) ?? 0)月"
+            }
+        }
+        return "\(v.timeMode.rawValue)"
+    }
+
+    private var headerToolbar: some View {
+        HStack(spacing: 12) {
             Picker("时间范围", selection: $viewModel.timeMode) {
                 ForEach(DailyTrendViewModel.TimeMode.allCases, id: \.self) { mode in
                     Text(mode.rawValue).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 360, alignment: .leading)
-            .onChange(of: viewModel.timeMode) { _ in
-                viewModel.applyFilter()
-            }
+            .frame(width: 360)
 
             if viewModel.isMonthlyMode || viewModel.isCustomMode {
                 TimeFilterView(
@@ -129,44 +132,65 @@ struct DailyTrendView: View {
                     endDate: $viewModel.endDate,
                     onChange: { viewModel.applyFilter() }
                 )
-                .padding(.leading, 8)
             }
 
             Spacer()
-        }
-    }
 
-    private var metricFilterBar: some View {
-        HStack {
-            Picker("输入输出", selection: $viewModel.selectedMetric) {
+            Picker("指标", selection: $viewModel.selectedMetric) {
                 ForEach(DailyTrendViewModel.MetricType.allCases, id: \.self) { metric in
                     Text(metric.rawValue).tag(metric)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 480, alignment: .leading)
-            Spacer()
-        }
-    }
+            .frame(width: 380)
 
-    // MARK: - Chart Mode
-
-    private var chartModeBar: some View {
-        HStack {
-            Picker("统计指标", selection: $viewModel.chartMode) {
+            Picker("模式", selection: $viewModel.chartMode) {
                 ForEach(DailyTrendViewModel.ChartMode.allCases, id: \.self) { mode in
                     Text(mode.rawValue).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 200, alignment: .leading)
-            Spacer()
+            .frame(width: 160)
+
+            Button(action: { viewModel.applyFilter() }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption)
+                    .padding(6)
+                    .background(.quaternary.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isLoading)
+            .help("刷新")
         }
     }
 
     // MARK: - Chart
 
     @State private var chartAnimated = false
+
+    private var chartCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Text(chartTitle)
+                    .font(.headline)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer()
+                modelChips
+            }
+
+            chartSection
+        }
+        .padding(16)
+        .mainContentCard()
+    }
+
+    private var chartTitle: String {
+        switch viewModel.chartMode {
+        case .token: return "Token 趋势"
+        case .cost: return "费用趋势"
+        }
+    }
 
     private var chartSection: some View {
         TrendChartView(
@@ -176,51 +200,48 @@ struct DailyTrendView: View {
         )
     }
 
-    // MARK: - Model Legend
+    // MARK: - Model Chips
 
-    private var modelLegend: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("模型过滤")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private var modelChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(viewModel.availableModels, id: \.self) { model in
+                    let idx = viewModel.availableModels.firstIndex(of: model) ?? 0
+                    let color = modelColors[idx % modelColors.count]
+                    let isSelected = viewModel.selectedModels.contains(model)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(viewModel.availableModels, id: \.self) { model in
-                        let idx = viewModel.availableModels.firstIndex(of: model) ?? 0
-                        let color = modelColors[idx % modelColors.count]
-                        let isSelected = viewModel.selectedModels.contains(model)
-
-                        Button {
-                            if isSelected {
-                                viewModel.selectedModels.remove(model)
-                            } else {
-                                viewModel.selectedModels.insert(model)
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(isSelected ? color : color.opacity(0.3))
-                                    .frame(width: 8, height: 8)
-                                Text(model)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(isSelected ? color.opacity(0.12) : Color.gray.opacity(0.08))
-                            .cornerRadius(14)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .stroke(isSelected ? color : Color.gray.opacity(0.3), lineWidth: 1)
-                            )
+                    Button {
+                        if isSelected {
+                            viewModel.selectedModels.remove(model)
+                        } else {
+                            viewModel.selectedModels.insert(model)
                         }
-                        .buttonStyle(.plain)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(isSelected ? color : color.opacity(0.3))
+                                .frame(width: 8, height: 8)
+                            Text(model)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(isSelected ? color.opacity(0.15) : Color.gray.opacity(0.08))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(isSelected ? color.opacity(0.5) : Color.gray.opacity(0.25), lineWidth: 1)
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding(.vertical, 4)
             }
+            .padding(.vertical, 4)
         }
+        .frame(maxWidth: 420)
     }
 
     // MARK: - Helpers
@@ -234,16 +255,6 @@ struct DailyTrendView: View {
             String(format: "%.0fK", Double(n) / 1_000)
         } else {
             "\(n)"
-        }
-    }
-
-    private func formatCost(_ value: Double) -> String {
-        if value < 0.01 {
-            String(format: "$%.4f", value)
-        } else if value < 1 {
-            String(format: "$%.2f", value)
-        } else {
-            String(format: "$%.1f", value)
         }
     }
 }
