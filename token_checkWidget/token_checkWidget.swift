@@ -163,6 +163,12 @@ private func formatCost(_ c: Double) -> String {
     String(format: "$%.2f", c)
 }
 
+private func cacheHitRate(for usage: WidgetTodayUsage) -> String {
+    let total = usage.cacheReadTokens + usage.inputTokens
+    guard total > 0 else { return "—" }
+    return String(format: "%.1f%%", Double(usage.cacheReadTokens) / Double(total) * 100)
+}
+
 private func statValue(for key: String, usage: WidgetTodayUsage?) -> String {
     guard let usage else { return "—" }
     switch key {
@@ -171,6 +177,7 @@ private func statValue(for key: String, usage: WidgetTodayUsage?) -> String {
     case "reasoningTokens": return formatTokens(usage.reasoningTokens)
     case "cacheReadTokens": return formatTokens(usage.cacheReadTokens)
     case "cacheWriteTokens": return formatTokens(usage.cacheWriteTokens)
+    case "cacheHitRate":   return cacheHitRate(for: usage)
     case "totalTokens":    return formatTokens(usage.totalTokens)
     case "todayCost":      return formatCost(usage.todayCost)
     case "sessionCount":   return "\(usage.sessionCount)"
@@ -191,6 +198,7 @@ private func statLabel(for key: String) -> String {
     case "reasoningTokens": return "推理"
     case "cacheReadTokens": return "缓存"
     case "cacheWriteTokens": return "缓存写入"
+    case "cacheHitRate":   return "缓存命中率"
     case "totalTokens":    return "总计"
     case "todayCost":      return "费用"
     case "sessionCount":   return "会话"
@@ -211,6 +219,7 @@ private func statColor(for key: String) -> Color {
     case "reasoningTokens": return .purple
     case "cacheReadTokens": return .teal
     case "cacheWriteTokens": return .cyan
+    case "cacheHitRate":   return .teal
     case "totalTokens":    return .indigo
     case "todayCost":      return .red
     case "sessionCount":   return .orange

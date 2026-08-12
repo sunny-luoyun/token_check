@@ -7,6 +7,7 @@ enum WidgetStatOption: String, AppEnum {
     case reasoningTokens
     case cacheReadTokens
     case cacheWriteTokens
+    case cacheHitRate
     case totalTokens
     case todayCost
     case sessionCount
@@ -25,6 +26,7 @@ enum WidgetStatOption: String, AppEnum {
         .reasoningTokens: "推理",
         .cacheReadTokens: "缓存",
         .cacheWriteTokens: "缓存写入",
+        .cacheHitRate: "缓存命中率",
         .totalTokens: "总计",
         .todayCost: "费用",
         .sessionCount: "会话",
