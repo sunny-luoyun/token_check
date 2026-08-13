@@ -17,7 +17,59 @@ struct TimeWindow: Codable, Identifiable, Hashable {
     var label: String
     var startHour: Int
     var endHour: Int
-    var priceMultiplier: Double
+    var inputMissPricePerMillion: Double
+    var cacheHitPricePerMillion: Double
+    var outputPricePerMillion: Double
+    var reasoningPricePerMillion: Double
+
+    fileprivate var pendingMultiplier: Double?
+
+    init(
+        label: String,
+        startHour: Int,
+        endHour: Int,
+        inputMissPricePerMillion: Double,
+        cacheHitPricePerMillion: Double,
+        outputPricePerMillion: Double,
+        reasoningPricePerMillion: Double
+    ) {
+        self.label = label
+        self.startHour = startHour
+        self.endHour = endHour
+        self.inputMissPricePerMillion = inputMissPricePerMillion
+        self.cacheHitPricePerMillion = cacheHitPricePerMillion
+        self.outputPricePerMillion = outputPricePerMillion
+        self.reasoningPricePerMillion = reasoningPricePerMillion
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        label = try container.decode(String.self, forKey: .label)
+        startHour = try container.decode(Int.self, forKey: .startHour)
+        endHour = try container.decode(Int.self, forKey: .endHour)
+        inputMissPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .inputMissPricePerMillion) ?? 0
+        cacheHitPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .cacheHitPricePerMillion) ?? 0
+        outputPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .outputPricePerMillion) ?? 0
+        reasoningPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .reasoningPricePerMillion) ?? 0
+        pendingMultiplier = try container.decodeIfPresent(Double.self, forKey: .priceMultiplier)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(label, forKey: .label)
+        try container.encode(startHour, forKey: .startHour)
+        try container.encode(endHour, forKey: .endHour)
+        try container.encode(inputMissPricePerMillion, forKey: .inputMissPricePerMillion)
+        try container.encode(cacheHitPricePerMillion, forKey: .cacheHitPricePerMillion)
+        try container.encode(outputPricePerMillion, forKey: .outputPricePerMillion)
+        try container.encode(reasoningPricePerMillion, forKey: .reasoningPricePerMillion)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case label, startHour, endHour
+        case inputMissPricePerMillion, cacheHitPricePerMillion, outputPricePerMillion, reasoningPricePerMillion
+        case priceMultiplier
+    }
 }
 
 struct ModelPricingRule: Codable, Identifiable, Hashable {
@@ -50,7 +102,13 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
                 && period.cacheHitPricePerMillion == Self.defaultCacheHitPricePerMillion
                 && period.outputPricePerMillion == Self.defaultOutputPricePerMillion
                 && period.reasoningPricePerMillion == Self.defaultReasoningPricePerMillion
-                && (period.timeWindows == nil || period.timeWindows!.isEmpty)
+                && (period.timeWindows == nil || period.timeWindows!.isEmpty
+                    || period.timeWindows!.allSatisfy { window in
+                        window.inputMissPricePerMillion == Self.defaultInputMissPricePerMillion
+                            && window.cacheHitPricePerMillion == Self.defaultCacheHitPricePerMillion
+                            && window.outputPricePerMillion == Self.defaultOutputPricePerMillion
+                            && window.reasoningPricePerMillion == Self.defaultReasoningPricePerMillion
+                    })
         }
     }
 
@@ -88,7 +146,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
 
         if let periods = try container.decodeIfPresent([PricingPeriod].self, forKey: .periods), !periods.isEmpty {
-            self.periods = periods
+            self.periods = Self.migrateTimeWindows(in: periods)
         } else {
             let inputMiss = try container.decode(Double.self, forKey: .inputMissPricePerMillion)
             let cacheHit = try container.decode(Double.self, forKey: .cacheHitPricePerMillion)
@@ -104,6 +162,23 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
                 reasoningPricePerMillion: reasoning,
                 timeWindows: nil
             )]
+        }
+    }
+
+    private static func migrateTimeWindows(in periods: [PricingPeriod]) -> [PricingPeriod] {
+        periods.map { period in
+            var period = period
+            period.timeWindows = period.timeWindows?.map { window in
+                var window = window
+                if let m = window.pendingMultiplier {
+                    window.inputMissPricePerMillion = period.inputMissPricePerMillion * m
+                    window.cacheHitPricePerMillion = period.cacheHitPricePerMillion * m
+                    window.outputPricePerMillion = period.outputPricePerMillion * m
+                    window.reasoningPricePerMillion = period.reasoningPricePerMillion * m
+                }
+                return window
+            }
+            return period
         }
     }
 
@@ -135,10 +210,10 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         if let windows = period.timeWindows,
            let window = windows.first(where: { hour >= $0.startHour && hour < $0.endHour }) {
             return (
-                period.inputMissPricePerMillion * window.priceMultiplier,
-                period.cacheHitPricePerMillion * window.priceMultiplier,
-                period.outputPricePerMillion * window.priceMultiplier,
-                period.reasoningPricePerMillion * window.priceMultiplier
+                window.inputMissPricePerMillion,
+                window.cacheHitPricePerMillion,
+                window.outputPricePerMillion,
+                window.reasoningPricePerMillion
             )
         }
         return (period.inputMissPricePerMillion,
