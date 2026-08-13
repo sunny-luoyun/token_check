@@ -47,11 +47,22 @@ struct TimeWindow: Codable, Identifiable, Hashable {
         label = try container.decode(String.self, forKey: .label)
         startHour = try container.decode(Int.self, forKey: .startHour)
         endHour = try container.decode(Int.self, forKey: .endHour)
-        inputMissPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .inputMissPricePerMillion) ?? 0
-        cacheHitPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .cacheHitPricePerMillion) ?? 0
-        outputPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .outputPricePerMillion) ?? 0
-        reasoningPricePerMillion = try container.decodeIfPresent(Double.self, forKey: .reasoningPricePerMillion) ?? 0
-        pendingMultiplier = try container.decodeIfPresent(Double.self, forKey: .priceMultiplier)
+        // 四价字段缺失时先存可选值，用于判断是否为极老格式（无价格无 multiplier）
+        let inputMiss = try container.decodeIfPresent(Double.self, forKey: .inputMissPricePerMillion)
+        let cacheHit = try container.decodeIfPresent(Double.self, forKey: .cacheHitPricePerMillion)
+        let output = try container.decodeIfPresent(Double.self, forKey: .outputPricePerMillion)
+        let reasoning = try container.decodeIfPresent(Double.self, forKey: .reasoningPricePerMillion)
+        let hasPrices = inputMiss != nil || cacheHit != nil || output != nil || reasoning != nil
+        if let m = try container.decodeIfPresent(Double.self, forKey: .priceMultiplier) {
+            pendingMultiplier = m
+        } else if !hasPrices {
+            // 极老格式：无 multiplier 且无价格字段 → 按基础价（×1.0）走迁移路径
+            pendingMultiplier = 1.0
+        }
+        inputMissPricePerMillion = inputMiss ?? 0
+        cacheHitPricePerMillion = cacheHit ?? 0
+        outputPricePerMillion = output ?? 0
+        reasoningPricePerMillion = reasoning ?? 0
     }
 
     func encode(to encoder: Encoder) throws {
@@ -98,18 +109,30 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
 
     var usesDefaultPricing: Bool {
         periods.allSatisfy { period in
-            period.inputMissPricePerMillion == Self.defaultInputMissPricePerMillion
-                && period.cacheHitPricePerMillion == Self.defaultCacheHitPricePerMillion
-                && period.outputPricePerMillion == Self.defaultOutputPricePerMillion
-                && period.reasoningPricePerMillion == Self.defaultReasoningPricePerMillion
+            Self.isDefaultPrice(
+                inputMiss: period.inputMissPricePerMillion,
+                cacheHit: period.cacheHitPricePerMillion,
+                output: period.outputPricePerMillion,
+                reasoning: period.reasoningPricePerMillion
+            )
                 && (period.timeWindows == nil || period.timeWindows!.isEmpty
                     || period.timeWindows!.allSatisfy { window in
-                        window.inputMissPricePerMillion == Self.defaultInputMissPricePerMillion
-                            && window.cacheHitPricePerMillion == Self.defaultCacheHitPricePerMillion
-                            && window.outputPricePerMillion == Self.defaultOutputPricePerMillion
-                            && window.reasoningPricePerMillion == Self.defaultReasoningPricePerMillion
+                        Self.isDefaultPrice(
+                            inputMiss: window.inputMissPricePerMillion,
+                            cacheHit: window.cacheHitPricePerMillion,
+                            output: window.outputPricePerMillion,
+                            reasoning: window.reasoningPricePerMillion
+                        )
                     })
         }
+    }
+
+    /// 与默认基础价比较（浮点比较用容差）
+    private static func isDefaultPrice(inputMiss: Double, cacheHit: Double, output: Double, reasoning: Double) -> Bool {
+        abs(inputMiss - defaultInputMissPricePerMillion) < 1e-9
+            && abs(cacheHit - defaultCacheHitPricePerMillion) < 1e-9
+            && abs(output - defaultOutputPricePerMillion) < 1e-9
+            && abs(reasoning - defaultReasoningPricePerMillion) < 1e-9
     }
 
     enum CodingKeys: String, CodingKey {
@@ -175,6 +198,8 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
                     window.cacheHitPricePerMillion = period.cacheHitPricePerMillion * m
                     window.outputPricePerMillion = period.outputPricePerMillion * m
                     window.reasoningPricePerMillion = period.reasoningPricePerMillion * m
+                    // 换算完成后清零，避免迁移后残留
+                    window.pendingMultiplier = nil
                 }
                 return window
             }

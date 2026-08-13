@@ -650,7 +650,7 @@ struct SettingsView: View {
                 }
 
                 if addWindowPeriodId == period.id {
-                    addWindowForm(periodId: period.id)
+                    addWindowForm()
                 } else {
                     Button {
                         addWindowPeriodId = period.id
@@ -705,7 +705,7 @@ struct SettingsView: View {
             }
         }
 
-        private func addWindowForm(periodId: String) -> some View {
+        private func addWindowForm() -> some View {
             HStack(spacing: 4) {
                 TextField("标签", text: $newWindowLabel)
                     .textFieldStyle(.roundedBorder)
