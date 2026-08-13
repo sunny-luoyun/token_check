@@ -91,6 +91,11 @@ private func largeWidgetChartRange() -> String {
     return defaults.string(forKey: "large_widget_chart_range") ?? "7d"
 }
 
+private func yearlyAvgMode() -> String {
+    guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else { return "used" }
+    return defaults.string(forKey: "yearly_avg_mode") ?? "used"
+}
+
 private let kDefaultStats: [String] = ["inputTokens", "cacheReadTokens", "outputTokens", "sessionCount"]
 
 struct TokenWidgetEntry: TimelineEntry {
@@ -904,6 +909,15 @@ struct LargeWidgetEntryView: View {
         let today = cal.startOfDay(for: Date())
         let thresholds = computeThresholds(data: data)
         let grouped = Dictionary(grouping: data.days) { cal.component(.month, from: $0.date) }
+        let avgMode = yearlyAvgMode()
+        let avgLabel: String
+        if avgMode == "calendar" {
+            avgLabel = "年度日均 \(formatTokens(data.avgDailyTokens))"
+        } else {
+            let usedDays = data.days.filter { $0.totalTokens > 0 }.count
+            let avg = usedDays > 0 ? data.totalTokens / usedDays : 0
+            avgLabel = "使用日均 \(formatTokens(avg))"
+        }
 
         return VStack(spacing: 2) {
             HStack {
@@ -976,7 +990,7 @@ struct LargeWidgetEntryView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("日均 \(formatTokens(data.avgDailyTokens))")
+                Text(avgLabel)
                     .font(.system(size: 8).monospaced())
                     .foregroundStyle(.secondary)
             }
