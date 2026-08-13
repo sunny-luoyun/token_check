@@ -97,7 +97,8 @@ private func yearlyAvgMode() -> String {
 }
 
 private func setYearlyAvgMode(_ mode: String) {
-    UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.set(mode, forKey: "yearly_avg_mode")
+    guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else { return }
+    defaults.set(mode, forKey: "yearly_avg_mode")
     WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckLargeWidgetV3")
 }
 
