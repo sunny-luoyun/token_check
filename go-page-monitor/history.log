@@ -4,3 +4,10 @@
 2026-08-07 08:47:49 | e9e74724 | docs(go): add Qwen3.8 Max (#40228)
     + | Qwen3.8 Max                  | $2.00   | $6.00   | $0.25           | $2.50           | $15       |
 
+2026-08-13 08:21:51 | 999be626 | chore: generate
+    - | DeepSeek V4 Pro   | Not used       | 0 days*        |
+    - | DeepSeek V4 Flash | Not used       | 0 days*        |
+    + | DeepSeek V4 Pro   | Not used       | 0 days\*       |
+    + | DeepSeek V4 Flash | Not used       | 0 days\*       |
+    变更文件: go.mdx, index.tsx, index.css, en.ts, zh.ts
+
