@@ -53,6 +53,18 @@ enum WidgetChartRange: String, AppEnum {
     ]
 }
 
+enum YearlyAvgMode: String, AppEnum {
+    case used
+    case calendar
+
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "日均口径")
+
+    static let caseDisplayRepresentations: [YearlyAvgMode: DisplayRepresentation] = [
+        .used: "使用日均",
+        .calendar: "年度日均",
+    ]
+}
+
 struct LargeWidgetConfigIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "大组件设置"
     static var description: IntentDescription = IntentDescription("配置顶部指标和图表范围")
@@ -71,4 +83,7 @@ struct LargeWidgetConfigIntent: WidgetConfigurationIntent {
 
     @Parameter(title: "图表范围", default: WidgetChartRange.sevenDays)
     var chartRange: WidgetChartRange
+
+    @Parameter(title: "日均口径", default: YearlyAvgMode.used)
+    var avgMode: YearlyAvgMode
 }

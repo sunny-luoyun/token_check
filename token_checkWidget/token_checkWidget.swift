@@ -96,12 +96,6 @@ private func yearlyAvgMode() -> String {
     return defaults.string(forKey: "yearly_avg_mode") ?? "used"
 }
 
-private func setYearlyAvgMode(_ mode: String) {
-    guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else { return }
-    defaults.set(mode, forKey: "yearly_avg_mode")
-    WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckLargeWidgetV3")
-}
-
 private let kDefaultStats: [String] = ["inputTokens", "cacheReadTokens", "outputTokens", "sessionCount"]
 
 struct TokenWidgetEntry: TimelineEntry {
@@ -673,6 +667,11 @@ struct LargeWidgetEntryView: View {
         return !intentVal.isEmpty ? intentVal : largeWidgetChartRange()
     }
 
+    private var avgMode: String {
+        let intentVal = entry.configuration.avgMode.rawValue
+        return !intentVal.isEmpty ? intentVal : yearlyAvgMode()
+    }
+
     private var displayMode: String { widgetDisplayMode() }
 
     private var chartLabel: String {
@@ -740,28 +739,6 @@ struct LargeWidgetEntryView: View {
             }
         }
         .containerBackground(.regularMaterial, for: .widget)
-        .contextMenu {
-            Button {
-                setYearlyAvgMode("calendar")
-            } label: {
-                HStack {
-                    Text("年度日均")
-                    if yearlyAvgMode() == "calendar" {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-            Button {
-                setYearlyAvgMode("used")
-            } label: {
-                HStack {
-                    Text("使用日均")
-                    if yearlyAvgMode() == "used" {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-        }
     }
 
     private func mediumContent(_ usage: WidgetTodayUsage) -> some View {
@@ -937,7 +914,7 @@ struct LargeWidgetEntryView: View {
         let today = cal.startOfDay(for: Date())
         let thresholds = computeThresholds(data: data)
         let grouped = Dictionary(grouping: data.days) { cal.component(.month, from: $0.date) }
-        let avgMode = yearlyAvgMode()
+        let avgMode = self.avgMode
         let avgLabel: String
         if avgMode == "calendar" {
             avgLabel = "年度日均 \(formatTokens(data.avgDailyTokens))"
