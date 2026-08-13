@@ -96,6 +96,11 @@ private func yearlyAvgMode() -> String {
     return defaults.string(forKey: "yearly_avg_mode") ?? "used"
 }
 
+private func setYearlyAvgMode(_ mode: String) {
+    UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.set(mode, forKey: "yearly_avg_mode")
+    WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckLargeWidgetV3")
+}
+
 private let kDefaultStats: [String] = ["inputTokens", "cacheReadTokens", "outputTokens", "sessionCount"]
 
 struct TokenWidgetEntry: TimelineEntry {
@@ -734,6 +739,28 @@ struct LargeWidgetEntryView: View {
             }
         }
         .containerBackground(.regularMaterial, for: .widget)
+        .contextMenu {
+            Button {
+                setYearlyAvgMode("calendar")
+            } label: {
+                HStack {
+                    Text("年度日均")
+                    if yearlyAvgMode() == "calendar" {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+            Button {
+                setYearlyAvgMode("used")
+            } label: {
+                HStack {
+                    Text("使用日均")
+                    if yearlyAvgMode() == "used" {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+        }
     }
 
     private func mediumContent(_ usage: WidgetTodayUsage) -> some View {
