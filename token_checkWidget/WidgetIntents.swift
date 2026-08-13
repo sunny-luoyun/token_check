@@ -60,7 +60,7 @@ enum YearlyAvgMode: String, AppEnum {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "日均口径")
 
     static let caseDisplayRepresentations: [YearlyAvgMode: DisplayRepresentation] = [
-        .used: "使用日均",
+        .used: "日均使用",
         .calendar: "年度日均",
     ]
 }

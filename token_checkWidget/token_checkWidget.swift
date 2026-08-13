@@ -921,7 +921,7 @@ struct LargeWidgetEntryView: View {
         } else {
             let usedDays = data.days.filter { $0.totalTokens > 0 }.count
             let avg = usedDays > 0 ? data.totalTokens / usedDays : 0
-            avgLabel = "使用日均 \(formatTokens(avg))"
+            avgLabel = "日均使用 \(formatTokens(avg))"
         }
 
         return VStack(spacing: 2) {
