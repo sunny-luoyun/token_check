@@ -39,14 +39,15 @@ private func yearlyAvgMode() -> String {
 - 模式为 `"calendar"`：`年度日均 X`（X = `data.avgDailyTokens`，原有逻辑不变）
 - 模式为 `"used"`：`使用日均 X`（X = `data.totalTokens / usedDays`，`usedDays = data.days.filter { $0.totalTokens > 0 }.count`，`usedDays > 0` 时取商，否则 0）
 
-### 3. 右键菜单
+### 3. 切换方式：Edit Widget 配置参数（原方案 contextMenu 废弃）
 
-在 `LargeWidgetEntryView` 的 `body`（`.containerBackground` 外侧）挂 `.contextMenu`：
+> 变更记录：最初方案用 `.contextMenu` 右键菜单切换。实测 macOS 26 上 WidgetKit widget 的 `.contextMenu` 不渲染自定义项（右键只显示系统项 Edit/Remove Widget），故废弃该方案，改用 macOS 官方支持的 AppIntentConfiguration 配置参数机制。
 
-- 菜单项"年度日均"：写 `yearly_avg_mode = "calendar"`，reload
-- 菜单项"使用日均"：写 `yearly_avg_mode = "used"`，reload
-- 当前模式对应的菜单项标记选中态（`Button` 前加 `Toggle` 样式或 `Image(systemName: "checkmark")`）
-- reload 方式：`WidgetCenter.shared.reloadTimelines(ofKind: "TokenCheckLargeWidgetV3")`
+- `WidgetIntents.swift` 新增 `YearlyAvgMode` AppEnum（`.used` 使用日均 / `.calendar` 年度日均，显示名"日均口径"）
+- `LargeWidgetConfigIntent` 新增参数 `@Parameter(title: "日均口径", default: YearlyAvgMode.used) var avgMode: YearlyAvgMode`
+- 系统自动在"右键 → Edit 年度热力图"配置界面生成下拉选择器，选择由系统持久化（每 widget 实例独立），配置变更自动刷新 timeline
+- `LargeWidgetEntryView` 新增 `avgMode` 计算属性：优先 `entry.configuration.avgMode`，回退 UserDefaults（`yearly_avg_mode`，兼容旧数据）
+- 移除 `.contextMenu` 与 `setYearlyAvgMode`（不再需要）
 
 菜单仅对该 widget（年度热力图）生效，不影响其他 widget（TokenCheck、ClashTraffic）。
 
@@ -60,7 +61,7 @@ private func yearlyAvgMode() -> String {
 ## 验证
 
 - 构建 widget target，确认编译通过
-- 右键 widget → 菜单出现"年度日均 / 使用日均"两个选项，当前模式有选中标记
-- 切换后 widget 立即刷新，底部标签与数值随之变化
+- 右键 widget → Edit 年度热力图 → 出现"日均口径"下拉选项（使用日均/年度日均），默认"使用日均"
+- 切换后 widget 自动刷新，底部标签与数值随之变化
 - 验证数值正确性：使用日均 = 全年总量 ÷ 有使用天数（用已知数据核对）
-- 重启后模式保持（UserDefaults 持久化）
+- 重启后选择保持（系统持久化 intent 参数）
