@@ -26,3 +26,19 @@ killall chronod 2>/dev/null
 ## 不改名就没事
 
 如果只修改 widget 内部 UI 逻辑、不改 `kind` 值，不会触发此问题。
+
+## 教训：改 kind 后即使清理也会再次堆积
+
+2026-07-16 将 `TokenCheckLargeWidgetV2` 改为 `TokenCheckLargeWidgetV3`（提交 4631334），
+提交说明声称"chronod 缓存自动清理旧 kind"，但实际写的 `cleanupWidgetTimelineCache()`
+只删除旧 kind 目录下的文件，对 chronod 数据库（BoardServices）中注册的实例毫无作用。
+
+2026-08-13 检查发现：`timelines/TokenCheckLargeWidgetV3/` 下积压了 **9 个实例文件**
+（实际通知中心只有 1-3 个真实实例），每次 `reloadTimelines(ofKind:)` chronod 都要
+逐个 reload，通知中心再次卡死 10-30 秒。
+
+**教训：**
+- 不要轻信"自动清理旧 kind"的实现，改 kind 后必须手动执行上面的清理命令
+- 清理后检查 `~/Library/Containers/com.luoyun.tokencheck.widget/Data/SystemData/com.apple.chrono/timelines/<kind>/` 下实例文件数量，应与通知中心实际组件数一致（每个实例一个文件，文件名含不同实例 ID）
+- 实例 ID 在 `_backup_old_instances` 等备份目录中出现过、又出现在当前 timelines 下，说明该实例从未真正从 chronod 数据库清除，是幽灵实例
+- 该无效清理逻辑（`cleanupWidgetTimelineCache`）已于 2026-08-13 删除，widget 内不再尝试自动清理 chronod 缓存

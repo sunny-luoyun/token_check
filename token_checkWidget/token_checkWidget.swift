@@ -4,29 +4,6 @@ import OSLog
 
 private let widgetLogger = Logger(subsystem: "com.luoyun.tokencheck", category: "widget-extension")
 
-private func cleanupWidgetTimelineCache() {
-    let home = NSHomeDirectory()
-    let baseDir = URL(fileURLWithPath: home).appendingPathComponent("SystemData/com.apple.chrono")
-    guard FileManager.default.fileExists(atPath: baseDir.path) else { return }
-    guard let enumerator = FileManager.default.enumerator(at: baseDir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
-    let oldWidgetNames = Set(["TokenCheckWidget", "TokenCheckSmallWidget", "TokenCheckLargeWidget", "TokenCheckLargeWidgetV2"])
-    var deleted = 0
-    for case let file as URL in enumerator {
-        let parentName = file.deletingLastPathComponent().lastPathComponent
-        guard oldWidgetNames.contains(parentName) else { continue }
-        try? FileManager.default.removeItem(at: file)
-        deleted += 1
-    }
-    if deleted > 0 {
-        widgetLogger.notice("cleaned up \(deleted) old chronod cache files under \(baseDir.path)")
-    }
-}
-
-private let _widgetTimelineCleanupOnce: Void = {
-    cleanupWidgetTimelineCache()
-    return ()
-}()
-
 private enum WidgetDataCache {
     static var usage: WidgetTodayUsage?
     static var heatmap: WidgetMonthlyHeatmapData?
@@ -38,7 +15,6 @@ private var _cachedWidgetData: CombinedWidgetData?
 private let kMinDataReadInterval: TimeInterval = 5
 
 private func readWidgetData() -> CombinedWidgetData? {
-    _ = _widgetTimelineCleanupOnce
     let now = Date()
     if now.timeIntervalSince(_lastDataReadTime) < kMinDataReadInterval,
        let cached = _cachedWidgetData {
