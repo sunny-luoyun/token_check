@@ -413,7 +413,6 @@ struct SettingsView: View {
         @State private var newWindowLabel = ""
         @State private var newWindowStart = 0
         @State private var newWindowEnd = 8
-        @State private var newWindowMultiplier = 0.5
 
         var body: some View {
             VStack(spacing: 0) {
@@ -457,7 +456,7 @@ struct SettingsView: View {
 
                     VStack(spacing: 6) {
                         ForEach(Array($rule.periods.enumerated()), id: \.element.id) { idx, $period in
-                            PricingPeriodEditor(period: $period, addWindowPeriodId: $addWindowPeriodId, newWindowLabel: $newWindowLabel, newWindowStart: $newWindowStart, newWindowEnd: $newWindowEnd, newWindowMultiplier: $newWindowMultiplier, onDelete: {
+                            PricingPeriodEditor(period: $period, addWindowPeriodId: $addWindowPeriodId, newWindowLabel: $newWindowLabel, newWindowStart: $newWindowStart, newWindowEnd: $newWindowEnd, onDelete: {
                                 rule.periods.remove(at: idx)
                             })
                             if idx < rule.periods.count - 1 {
@@ -504,7 +503,7 @@ struct SettingsView: View {
             if let active = active, let windows = active.timeWindows, !windows.isEmpty {
                 let hour = Calendar.current.component(.hour, from: now)
                 if let w = windows.first(where: { hour >= $0.startHour && hour < $0.endHour }) {
-                    summary += " · \(w.label)(x\(String(format: "%.2f", w.priceMultiplier)))"
+                    summary += " · \(w.label)"
                 }
             }
             if let active = active, active.effectiveFrom > Date.distantPast {
@@ -522,7 +521,6 @@ struct SettingsView: View {
         @Binding var newWindowLabel: String
         @Binding var newWindowStart: Int
         @Binding var newWindowEnd: Int
-        @Binding var newWindowMultiplier: Double
         let onDelete: () -> Void
 
         var body: some View {
@@ -587,49 +585,64 @@ struct SettingsView: View {
                 if let windows = period.timeWindows, !windows.isEmpty {
                     VStack(spacing: 2) {
                         ForEach(Array(windows.enumerated()), id: \.element.id) { idx, _ in
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                TextField("标签", text: Binding(
-                                    get: { period.timeWindows?[idx].label ?? "" },
-                                    set: { period.timeWindows?[idx].label = $0 }
-                                ))
-                                .textFieldStyle(.roundedBorder)
-                                .font(.caption)
-                                .frame(width: 70)
-
-                                hourStepper(value: Binding(
-                                    get: { period.timeWindows?[idx].startHour ?? 0 },
-                                    set: { period.timeWindows?[idx].startHour = $0 }
-                                ), label: "开始")
-
-                                Text("→")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                hourStepper(value: Binding(
-                                    get: { period.timeWindows?[idx].endHour ?? 24 },
-                                    set: { period.timeWindows?[idx].endHour = $0 }
-                                ), label: "结束")
-
-                                TextField("倍率", value: Binding(
-                                    get: { period.timeWindows?[idx].priceMultiplier ?? 1.0 },
-                                    set: { period.timeWindows?[idx].priceMultiplier = $0 }
-                                ), format: .number.precision(.fractionLength(0...2)))
+                            VStack(spacing: 2) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "clock")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    TextField("标签", text: Binding(
+                                        get: { period.timeWindows?[idx].label ?? "" },
+                                        set: { period.timeWindows?[idx].label = $0 }
+                                    ))
                                     .textFieldStyle(.roundedBorder)
                                     .font(.caption)
-                                    .frame(width: 56)
+                                    .frame(width: 70)
 
-                                Button {
-                                    period.timeWindows?.remove(at: idx)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
+                                    hourStepper(value: Binding(
+                                        get: { period.timeWindows?[idx].startHour ?? 0 },
+                                        set: { period.timeWindows?[idx].startHour = $0 }
+                                    ), label: "开始")
+
+                                    Text("→")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
+
+                                    hourStepper(value: Binding(
+                                        get: { period.timeWindows?[idx].endHour ?? 24 },
+                                        set: { period.timeWindows?[idx].endHour = $0 }
+                                    ), label: "结束")
+
+                                    Spacer()
+
+                                    Button {
+                                        period.timeWindows?.remove(at: idx)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
+                                HStack(spacing: 6) {
+                                    priceField(label: "无缓存输入", value: Binding(
+                                        get: { period.timeWindows?[idx].inputMissPricePerMillion ?? 0 },
+                                        set: { period.timeWindows?[idx].inputMissPricePerMillion = $0 }
+                                    ))
+                                    priceField(label: "缓存命中", value: Binding(
+                                        get: { period.timeWindows?[idx].cacheHitPricePerMillion ?? 0 },
+                                        set: { period.timeWindows?[idx].cacheHitPricePerMillion = $0 }
+                                    ))
+                                    priceField(label: "输出", value: Binding(
+                                        get: { period.timeWindows?[idx].outputPricePerMillion ?? 0 },
+                                        set: { period.timeWindows?[idx].outputPricePerMillion = $0 }
+                                    ))
+                                    priceField(label: "推理", value: Binding(
+                                        get: { period.timeWindows?[idx].reasoningPricePerMillion ?? 0 },
+                                        set: { period.timeWindows?[idx].reasoningPricePerMillion = $0 }
+                                    ))
+                                }
                             }
+                            .padding(.vertical, 2)
                         }
                     }
                     .padding(.leading, 8)
@@ -644,7 +657,6 @@ struct SettingsView: View {
                         newWindowLabel = ""
                         newWindowStart = 0
                         newWindowEnd = 8
-                        newWindowMultiplier = 0.5
                     } label: {
                         Label("添加分时窗口", systemImage: "plus")
                             .font(.caption)
@@ -704,10 +716,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 hourStepper(value: $newWindowEnd, label: "结束")
-                TextField("倍率", value: $newWindowMultiplier, format: .number.precision(.fractionLength(0...2)))
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-                    .frame(width: 56)
                 Button("添加") {
                     let label = newWindowLabel.trimmingCharacters(in: .whitespaces)
                     period.timeWindows = period.timeWindows ?? []
@@ -715,7 +723,10 @@ struct SettingsView: View {
                         label: label.isEmpty ? "窗口" : label,
                         startHour: newWindowStart,
                         endHour: newWindowEnd,
-                        priceMultiplier: newWindowMultiplier
+                        inputMissPricePerMillion: period.inputMissPricePerMillion,
+                        cacheHitPricePerMillion: period.cacheHitPricePerMillion,
+                        outputPricePerMillion: period.outputPricePerMillion,
+                        reasoningPricePerMillion: period.reasoningPricePerMillion
                     ))
                     addWindowPeriodId = nil
                 }
