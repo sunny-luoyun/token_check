@@ -42,3 +42,89 @@ killall chronod 2>/dev/null
 - 清理后检查 `~/Library/Containers/com.luoyun.tokencheck.widget/Data/SystemData/com.apple.chrono/timelines/<kind>/` 下实例文件数量，应与通知中心实际组件数一致（每个实例一个文件，文件名含不同实例 ID）
 - 实例 ID 在 `_backup_old_instances` 等备份目录中出现过、又出现在当前 timelines 下，说明该实例从未真正从 chronod 数据库清除，是幽灵实例
 - 该无效清理逻辑（`cleanupWidgetTimelineCache`）已于 2026-08-13 删除，widget 内不再尝试自动清理 chronod 缓存
+
+## 真正的根因（2026-08-14 确认）：ReloadState 表堆积
+
+**之前所有清理（删缓存目录 + killall chronod + lsregister）都无效的原因：**
+widget 实例注册在 **系统级数据库** 中，不在 widget 容器里：
+
+```
+~/Library/Group Containers/group.com.apple.chronod/chronod/chrono.sql
+```
+
+此路径受 TCC 保护（macOS 26 连 root/launchd 都被拦截，需给终端 App 授予
+"完全磁盘访问权限"才能访问）。
+
+**卡顿根源：`ReloadState` 表（BundleID, Kind, DateReloadRequested）堆积了 13 万条记录。**
+- 2026-08-14 实测：133,594 条，其中 `com.apple.Notes.WidgetExtension` 占 119,253 条
+  （119,251 条 Kind 为 NULL，SQLite 主键中的 NULL 不参与唯一约束 → 无限堆积）
+- `com.bing.lyrics.lyricsWidget` 占 13,016 条
+- 每次任何 widget reload 时 chronod 都要处理这些历史 reload 状态 → 通知中心卡 15-20 秒
+- token_check 本身只有 4 条（正常，每 kind 1 条）
+
+**清理方法（授权后可执行）：**
+```bash
+DB="$HOME/Library/Group Containers/group.com.apple.chronod/chronod/chrono.sql"
+# 1. 备份
+cp "$DB" /tmp/chrono.sql.full.bak
+# 2. 每个 (BundleID, Kind) 只保留最新一条
+sqlite3 "$DB" "DELETE FROM ReloadState WHERE rowid NOT IN (
+  SELECT r.rowid FROM ReloadState r
+  INNER JOIN (SELECT BundleID, Kind, MAX(DateReloadRequested) AS max_dt
+              FROM ReloadState GROUP BY BundleID, Kind) l
+  ON r.BundleID = l.BundleID AND (r.Kind IS l.Kind) AND r.DateReloadRequested = l.max_dt);"
+# 3. 验证
+sqlite3 "$DB" "SELECT COUNT(*) FROM ReloadState;"   # 应降到几十条
+```
+清理后 app 下次刷新会自动重建 token_check 的 4 条 ReloadState（正常行为）。
+
+**注意：**
+- 清理时若 chronod 正在运行，token_check 的 ReloadState 可能被并发删除（无害，
+  下次刷新自动重建；测试库重放验证 DELETE 逻辑本身不删 token_check）
+- 若 Notes/lyrics 等系统组件继续异常堆积，需定期清理或查其自身 bug
+
+## 最终根因（2026-08-14 实测确认）：NotificationCenter 进程的 fd 缓存
+
+**ReloadState 清理后卡顿依旧（10-20 秒），实测发现真正的元凶：**
+
+`NotificationCenter` 进程持有 widget timeline 文件的**打开句柄（fd）缓存**，
+缓存内容来自历史上所有添加过的实例（含已删除的幽灵实例）。
+
+**实测证据链：**
+1. 桌面/通知中心实际只有 1 个大组件（实例 ID = `4482360981193516153`）
+2. 但 `lsof -p <NotificationCenter PID>` 显示它持有 **9 个** V3 timeline 文件 fd
+   （正是 8/13 清理前的全部 9 个实例 ID，含已删除的幽灵实例）
+3. 每次刷新：app → chronod → 从 NotificationCenter 取实例列表 → 对全部
+   9 个实例逐个 reload → 幽灵实例无法匹配 descriptor → 重试 → 通知中心卡 10-20 秒
+4. **删磁盘 timeline 文件后，NotificationCenter 仍持有 fd，刷新时通过 fd
+   重新写回文件（"删了又恢复"的真相）**
+5. 重启 chronod 无效（它从 NotificationCenter 拿列表，依旧 9 个）
+6. **`killall NotificationCenter` 后 fd 缓存清空，只重建真实实例** → 卡顿消失
+
+**验证方法：**
+```bash
+# 检查 NotificationCenter 持有的 token_check timeline fd 数量
+sudo lsof -p $(pgrep -x NotificationCenter | head -1) | grep TokenCheckLargeWidgetV3
+# 应与通知中心实际组件数一致（正常为 1）
+```
+
+**根除方法（实测有效）：**
+```bash
+# 1. 删除幽灵 timeline 文件（保留真实实例对应的文件）
+cd ~/Library/Containers/com.luoyun.tokencheck.widget/Data/SystemData/com.apple.chrono/timelines/TokenCheckLargeWidgetV3/
+ls   # 记录当前文件，保留通知中心真实存在的那个实例 ID
+rm -f systemLarge--<幽灵ID>*.chrono-timeline
+
+# 2. 重启 NotificationCenter 清空 fd 缓存（关键步骤！）
+killall NotificationCenter
+```
+
+**通用流程（卡顿复发时按序执行）：**
+1. `killall NotificationCenter`（清除幽灵实例 fd 缓存）
+2. 若 ReloadState 表再堆积：按上面 SQL 清理（需完全磁盘访问权限）
+3. 检查 `timelines/<kind>/` 文件数应与通知中心实际组件数一致
+
+**结论：**
+- 改 `kind` 只是触发因素，真正让幽灵实例"永生"的是 NotificationCenter 的 fd 缓存
+- 代码层面无法预防（系统行为），复发时执行上述清理即可
+- 2026-08-14 实测：清理后每次刷新卡顿 <1 秒，恢复正常
