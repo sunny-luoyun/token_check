@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var showCleanAlert = false
     @State private var cleanSuccess = false
     @AppStorage("widgetRefreshInterval", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var widgetRefreshInterval = 60
+    @AppStorage("widget_dataSource", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var widgetDataSource = "opencode"
 
     @AppStorage("subscriptionEnabled", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionEnabled = false
     @AppStorage("subscriptionStartDay", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionStartDay = 15
@@ -174,6 +175,27 @@ struct SettingsView: View {
                         }
                         .labelsHidden()
                     }
+                }
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("小组件数据源")
+                            .font(.subheadline.weight(.medium))
+                        Text("小组件统计的数据来源（opencode / DSH / 合并）")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("", selection: $widgetDataSource) {
+                        Text("opencode").tag("opencode")
+                        Text("DSH").tag("dsh")
+                        Text("总").tag("all")
+                    }
+                    .labelsHidden()
+                    .frame(width: 130)
                 }
                 MenuBarStatPicker(
                     label: "菜单栏第一项统计",

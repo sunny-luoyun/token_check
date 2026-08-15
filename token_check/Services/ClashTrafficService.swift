@@ -39,17 +39,18 @@ final class ClashTrafficService {
         return URLSession(configuration: config)
     }()
 
-    func fetchAndWriteTrafficData() {
+    /// 拉取订阅流量并写入 App Group。返回是否成功（含 subscription-userinfo 头并解析出总量）。
+    func fetchAndWriteTrafficData() -> Bool {
         guard let sub = readSubscriptionURL() else {
             logger.debug("未找到 Clash 订阅 URL")
-            return
+            return false
         }
 
         logger.debug("请求订阅流量数据: label=\(sub.label) url=\(sub.url, privacy: .private)")
 
         guard let url = URL(string: sub.url) else {
             logger.error("无效的订阅 URL")
-            return
+            return false
         }
 
         var request = URLRequest(url: url)
@@ -76,13 +77,13 @@ final class ClashTrafficService {
         _ = semaphore.wait(timeout: .now() + 15)
 
         guard let header = userInfoHeader else {
-            logger.error("获取 subscription-userinfo 失败")
-            return
+            logger.error("获取 subscription-userinfo 失败（订阅地址不可达或代理出口异常）")
+            return false
         }
 
         guard let data = parseSubscriptionInfo(header) else {
             logger.error("解析 subscription-userinfo 失败: \(header)")
-            return
+            return false
         }
 
         let traffic = ClashTrafficData(
@@ -95,6 +96,7 @@ final class ClashTrafficService {
         )
 
         writeToAppGroup(traffic)
+        return true
     }
 
     private func readSubscriptionURL() -> ClashSubscription? {

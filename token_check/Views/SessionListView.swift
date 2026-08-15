@@ -78,6 +78,18 @@ struct SessionListView: View {
                         }
                     }
 
+                    DataSourceSwitchBar(
+                        dataSource: $viewModel.dataSource,
+                        detailText: { source in
+                            if source == .dsh {
+                                return viewModel.dshLevel == .full
+                                    ? "DeepSeek Harness · 事件级（L2）"
+                                    : "DeepSeek Harness · 投影缓存（L1）"
+                            }
+                            return source.detailText
+                        }
+                    )
+
                     Divider()
 
                     sessionTable
@@ -87,6 +99,9 @@ struct SessionListView: View {
         }
         .navigationTitle("会话历史")
         .onAppear {
+            viewModel.load()
+        }
+        .onChange(of: viewModel.dataSource) { _, _ in
             viewModel.load()
         }
         .animation(.easeInOut(duration: 0.25), value: viewModel.filteredSessions.count)

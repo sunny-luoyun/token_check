@@ -35,8 +35,12 @@ final class StatusItemManager: NSObject, NSMenuDelegate {
 
     @objc private func applyVisibility() {
         let visible = UserDefaults.standard.object(forKey: "showMenuBarIcon") as? Bool ?? true
+        let dockVisible = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
+        // 兜底：Dock 和菜单栏都隐藏时强制显示菜单栏图标，
+        // 否则主窗口关闭后没有任何入口可以重新打开（app 将"打不开"）
+        let effectiveVisible = visible || !dockVisible
 
-        if visible {
+        if effectiveVisible {
             guard statusItem == nil else { return }
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             item.button?.action = #selector(handleClick)

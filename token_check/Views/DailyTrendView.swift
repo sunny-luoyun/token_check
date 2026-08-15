@@ -26,6 +26,18 @@ struct DailyTrendView: View {
                         headerToolbar
                     }
 
+                    DataSourceSwitchBar(
+                        dataSource: $viewModel.dataSource,
+                        detailText: { source in
+                            if source == .dsh {
+                                return viewModel.dshLevel == .full
+                                    ? "DeepSeek Harness · 事件级（L2）"
+                                    : "DeepSeek Harness · 投影缓存（L1，无每日分解）"
+                            }
+                            return source.detailText
+                        }
+                    )
+
                     if viewModel.isMonthlyMode || viewModel.isCustomMode {
                         HStack {
                             TimeFilterView(
@@ -74,6 +86,9 @@ struct DailyTrendView: View {
             viewModel.load()
         }
         .onReceive(NotificationCenter.default.publisher(for: SharedStorage.pricingRulesUpdated)) { _ in
+            viewModel.load()
+        }
+        .onChange(of: viewModel.dataSource) { _, _ in
             viewModel.load()
         }
     }

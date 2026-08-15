@@ -15,8 +15,13 @@ struct ModelCostBreakdown: Identifiable {
     let resolvedCacheHitPrice: Double
     let resolvedOutputPrice: Double
     let resolvedReasoningPrice: Double
+    /// 行名覆盖（DSH 模式按项目聚合时显示项目名）
+    let displayNameOverride: String?
 
     var displayName: String {
+        if let displayNameOverride, !displayNameOverride.isEmpty {
+            return displayNameOverride
+        }
         let name = variant == "default" || variant == "max" ? modelId : "\(modelId) (\(variant))"
         if providerID == "opencode" { return name }
         return "[\(providerID)] \(name)"
@@ -55,7 +60,8 @@ extension ModelCostBreakdown {
         outputTokens: Int,
         reasoningTokens: Int,
         pricing: ModelPricingRule,
-        referenceDate: Date = .now
+        referenceDate: Date = .now,
+        displayNameOverride: String? = nil
     ) {
         let prices = pricing.price(at: referenceDate)
         self.id = id
@@ -72,6 +78,7 @@ extension ModelCostBreakdown {
         self.resolvedCacheHitPrice = prices.cacheHit
         self.resolvedOutputPrice = prices.output
         self.resolvedReasoningPrice = prices.reasoning
+        self.displayNameOverride = displayNameOverride
     }
 }
 

@@ -49,6 +49,17 @@ class DailyTrendViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var rolledBackTotal: Int = 0
+    @Published var dataSource: StatsDataSource {
+        didSet { defaults.set(dataSource.rawValue, forKey: Self.dataSourceKey) }
+    }
+    @Published var dshLevel: DshDetailLevel = .full
+
+    private let defaults = UserDefaults.standard
+    private static let dataSourceKey = "trend_dataSource"
+
+    init() {
+        dataSource = StatsDataSource(rawValue: defaults.string(forKey: Self.dataSourceKey) ?? "") ?? .opencode
+    }
 
     var days: Int {
         switch timeMode {
@@ -112,92 +123,134 @@ class DailyTrendViewModel: ObservableObject {
         isLoading = true
         error = nil
 
+        switch dataSource {
+        case .opencode: loadOpencode()
+        case .dsh: loadDsh()
+        case .all: loadAll()
+        }
+    }
+
+    func applyFilter() {
+        load()
+    }
+
+    // MARK: - 数据获取（opencode / DSH）
+
+    private struct TrendQuery {
+        let start: Date?
+        let end: Date?
+    }
+
+    /// 按当前时间模式计算查询范围（opencode 与 DSH 共用口径）
+    private func computeQueryRange() -> TrendQuery {
+        let cal = Calendar.current
+        if isCustomMode {
+            return TrendQuery(start: startDate, end: endDate)
+        }
+        if isMonthlyMode {
+            if let year = selectedYear, let month = selectedMonth {
+                if filterMode == .day, let day = selectedDay {
+                    let date = Self.dateFrom(year: year, month: month, day: day)
+                    return TrendQuery(start: date, end: date)
+                }
+                return TrendQuery(
+                    start: Self.dateFrom(year: year, month: month),
+                    end: Self.lastDayOf(year: year, month: month)
+                )
+            }
+            return TrendQuery(start: nil, end: nil)
+        }
+        let today = cal.startOfDay(for: Date())
+        return TrendQuery(
+            start: cal.date(byAdding: .day, value: -(days - 1), to: today),
+            end: today
+        )
+    }
+
+    private struct OpencodeTrendData {
+        let data: [DailyModelUsage]
+        let periods: [TimePeriod]
+        let days: [String]
+        let rbTotal: Int
+    }
+
+    /// opencode 每日按模型数据（未填充缺失日；失败抛错）
+    private func fetchOpencodeData() throws -> OpencodeTrendData {
+        if let ds = DatabaseService.shared, let db = ds.db {
+            TokenDeltaTracker.shared.refresh(db: db)
+        }
+        guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
+        let query = computeQueryRange()
+        let rbTotal: Int
+        var data: [DailyModelUsage]
+        if let qs = query.start, let qe = query.end {
+            rbTotal = TokenDeltaTracker.shared.rollback(from: qs, to: qe).total
+            data = TokenDeltaTracker.shared.dailyModelUsage(from: qs, to: qe)
+            data = try service.fetchDailyUsageByModel(from: qs, to: qe)
+        } else if isMonthlyMode {
+            rbTotal = TokenDeltaTracker.shared.rollback(year: selectedYear, month: selectedMonth, day: filterMode == .day ? selectedDay : nil).total
+            data = try service.fetchDailyUsageByModel(
+                year: selectedYear, month: selectedMonth, day: filterMode == .day ? selectedDay : nil
+            )
+        } else {
+            rbTotal = 0
+            data = []
+        }
+
+        let periods = try service.fetchAvailablePeriods()
+
+        var days: [String] = []
+        if isMonthlyMode, let year = selectedYear, let month = selectedMonth {
+            days = try service.fetchAvailableDays(year: year, month: month)
+        }
+
+        return OpencodeTrendData(data: data, periods: periods, days: days, rbTotal: rbTotal)
+    }
+
+    private struct DshTrendData {
+        let data: [DailyModelUsage]
+        let periods: [TimePeriod]
+        let days: [String]
+        let level: DshDetailLevel
+    }
+
+    /// DSH 每日按模型数据（事件级；zstd 不可用时为空并回退 L1）
+    private func fetchDshData() -> DshTrendData? {
+        guard case .success(let dataSource) = DshService.shared.loadDetailedData() else {
+            return nil
+        }
+        let query = computeQueryRange()
+        var data: [DailyModelUsage] = []
+        if let qs = query.start, let qe = query.end {
+            data = dataSource.dailyUsage(DshTimeFilter(from: qs, to: qe, year: nil, month: nil, day: nil))
+        } else if isMonthlyMode {
+            data = dataSource.dailyUsage(DshTimeFilter(
+                from: nil, to: nil,
+                year: selectedYear, month: selectedMonth,
+                day: filterMode == .day ? selectedDay : nil
+            ))
+        }
+        var days: [String] = []
+        if isMonthlyMode {
+            days = dataSource.days(year: selectedYear, month: selectedMonth)
+        }
+        return DshTrendData(data: data, periods: dataSource.periods(), days: days, level: dataSource.level)
+    }
+
+    // MARK: - opencode 数据源
+
+    private func loadOpencode() {
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
-            if let ds = DatabaseService.shared, let db = ds.db {
-                TokenDeltaTracker.shared.refresh(db: db)
-            }
             do {
-                guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
-                let cal = Calendar.current
-                let rbTotal: Int
-                var data: [DailyModelUsage]
-                var queryStart: Date?
-                var queryEnd: Date?
-                if self.isCustomMode {
-                    queryStart = self.startDate
-                    queryEnd = self.endDate
-                    rbTotal = TokenDeltaTracker.shared.rollback(from: self.startDate, to: self.endDate).total
-                    data = TokenDeltaTracker.shared.dailyModelUsage(from: self.startDate, to: self.endDate)
-                } else if self.isMonthlyMode {
-                    if let year = self.selectedYear, let month = self.selectedMonth {
-                        if self.filterMode == .day, let day = self.selectedDay {
-                            let date = Self.dateFrom(year: year, month: month, day: day)
-                            queryStart = date
-                            queryEnd = date
-                            rbTotal = TokenDeltaTracker.shared.rollback(year: year, month: month, day: day).total
-                            data = TokenDeltaTracker.shared.dailyModelUsage(from: date, to: date)
-                        } else {
-                            queryStart = Self.dateFrom(year: year, month: month)
-                            queryEnd = Self.lastDayOf(year: year, month: month)
-                            rbTotal = TokenDeltaTracker.shared.rollback(year: year, month: month, day: nil).total
-                            data = TokenDeltaTracker.shared.dailyModelUsage(from: queryStart!, to: queryEnd!)
-                        }
-                    } else {
-                        rbTotal = 0
-                        data = []
-                    }
-                } else {
-                    let today = cal.startOfDay(for: Date())
-                    queryEnd = today
-                    queryStart = cal.date(byAdding: .day, value: -(self.days - 1), to: today)
-                    rbTotal = TokenDeltaTracker.shared.rollback(days: self.days).total
-                    if let startDate = queryStart {
-                        data = TokenDeltaTracker.shared.dailyModelUsage(from: startDate, to: today)
-                    } else {
-                        data = []
-                    }
-                }
-
-                // service 层已统一为事件优先 + session 兜底
-                if let qs = queryStart, let qe = queryEnd {
-                    data = try service.fetchDailyUsageByModel(from: qs, to: qe)
-                }
-
-                let periods = try service.fetchAvailablePeriods()
-                let pricingRules = ModelPricingStore.load()
-
-                let filteredData = data.filter {
-                    ModelPricingStore.isEnabled(forModelId: $0.modelId, variant: $0.variant, providerID: $0.providerID, rules: pricingRules)
-                }
-
-                var days: [String] = []
-                if self.isMonthlyMode, let year = self.selectedYear, let month = self.selectedMonth {
-                    days = try service.fetchAvailableDays(year: year, month: month)
-                }
-
-                let filledData: [DailyModelUsage]
-                if self.isMonthlyMode, let year = self.selectedYear, let month = self.selectedMonth {
-                    if self.filterMode == .day, let day = self.selectedDay {
-                        let date = Self.dateFrom(year: year, month: month, day: day)
-                        filledData = self.fillMissingDaysInRange(filteredData, from: date, to: date)
-                    } else {
-                        let start = Self.dateFrom(year: year, month: month)
-                        let end = Self.lastDayOf(year: year, month: month)
-                        filledData = self.fillMissingDaysInRange(filteredData, from: start, to: end)
-                    }
-                } else if self.isCustomMode {
-                    filledData = self.fillMissingDaysInRange(filteredData, from: self.startDate, to: self.endDate)
-                } else {
-                    filledData = self.fillMissingDays(filteredData, days: self.days)
-                }
-
+                let raw = try self.fetchOpencodeData()
+                let filled = self.fill(raw.data)
                 DispatchQueue.main.async {
-                    self.periods = periods
-                    self.dailyData = filledData
-                    self.availableDays = ["全部"] + days
-                    self.rolledBackTotal = rbTotal
-                    let availableModels = Set(filledData.map(\.displayName))
+                    self.periods = raw.periods
+                    self.dailyData = filled
+                    self.availableDays = ["全部"] + raw.days
+                    self.rolledBackTotal = raw.rbTotal
+                    let availableModels = Set(filled.map(\.displayName))
                     let preservedSelection = self.selectedModels.intersection(availableModels)
                     self.selectedModels = preservedSelection.isEmpty ? availableModels : preservedSelection
                     self.isLoading = false
@@ -209,6 +262,144 @@ class DailyTrendViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: - DSH 数据源
+
+    private func loadDsh() {
+        DatabaseService.loadQueue.addOperation { [weak self] in
+            guard let self else { return }
+
+            switch DshService.shared.loadDetailedData() {
+            case .success(let dataSource):
+                let raw = self.fetchDshData() ?? DshTrendData(data: [], periods: dataSource.periods(), days: [], level: dataSource.level)
+                let filled = self.fill(raw.data)
+                DispatchQueue.main.async {
+                    self.periods = raw.periods
+                    self.dailyData = filled
+                    self.availableDays = ["全部"] + raw.days
+                    self.rolledBackTotal = 0
+                    self.dshLevel = raw.level
+                    let availableModels = Set(filled.map(\.displayName))
+                    let preservedSelection = self.selectedModels.intersection(availableModels)
+                    self.selectedModels = preservedSelection.isEmpty ? availableModels : preservedSelection
+                    self.isLoading = false
+                }
+            case .missing:
+                DispatchQueue.main.async {
+                    self.dailyData = []
+                    self.periods = []
+                    self.availableDays = []
+                    self.error = "未检测到 DSH 数据（\(DshService.dshHomePath ?? "~/.dsh") 下无投影缓存）。\n请先通过 DeepSeek Harness 开始至少一个会话。"
+                    self.isLoading = false
+                }
+            case .failure(let message):
+                DispatchQueue.main.async {
+                    self.dailyData = []
+                    self.error = message
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+
+    // MARK: - 合并统计（opencode + DSH）
+
+    private func loadAll() {
+        DatabaseService.loadQueue.addOperation { [weak self] in
+            guard let self else { return }
+
+            var ocError: String?
+            var ocRaw: OpencodeTrendData?
+            do {
+                ocRaw = try self.fetchOpencodeData()
+            } catch {
+                ocError = error.localizedDescription
+            }
+            let dshRaw = self.fetchDshData()
+
+            if ocRaw == nil, dshRaw == nil {
+                DispatchQueue.main.async {
+                    self.error = ocError ?? "未检测到 DSH 数据（\(DshService.dshHomePath ?? "~/.dsh") 下无投影缓存）"
+                    self.isLoading = false
+                }
+                return
+            }
+
+            let merged = Self.mergeDailyUsages(ocRaw?.data ?? [], dshRaw?.data ?? [])
+            let filled = self.fill(merged)
+            let mergedPeriods = Self.mergePeriods(ocRaw?.periods ?? [], dshRaw?.periods ?? [])
+            let mergedDays = Self.mergeDays(ocRaw?.days ?? [], dshRaw?.days ?? [])
+
+            DispatchQueue.main.async {
+                self.periods = mergedPeriods
+                self.dailyData = filled
+                self.availableDays = ["全部"] + mergedDays
+                self.rolledBackTotal = ocRaw?.rbTotal ?? 0
+                self.dshLevel = dshRaw?.level ?? .missing
+                let availableModels = Set(filled.map(\.displayName))
+                let preservedSelection = self.selectedModels.intersection(availableModels)
+                self.selectedModels = preservedSelection.isEmpty ? availableModels : preservedSelection
+                self.isLoading = false
+            }
+        }
+    }
+
+    /// 按 (日期, 模型) 合并两套每日数据
+    static func mergeDailyUsages(_ a: [DailyModelUsage], _ b: [DailyModelUsage]) -> [DailyModelUsage] {
+        var map: [String: DailyModelUsage] = [:]
+        for item in a + b {
+            let key = "\(item.date.timeIntervalSince1970)/\(item.modelKey)"
+            if let existing = map[key] {
+                map[key] = DailyModelUsage(
+                    id: key,
+                    date: existing.date,
+                    providerID: existing.providerID,
+                    modelId: existing.modelId,
+                    variant: existing.variant,
+                    inputTokens: existing.inputTokens + item.inputTokens,
+                    outputTokens: existing.outputTokens + item.outputTokens,
+                    cacheReadTokens: existing.cacheReadTokens + item.cacheReadTokens,
+                    reasoningTokens: existing.reasoningTokens + item.reasoningTokens,
+                    cacheWriteTokens: existing.cacheWriteTokens + item.cacheWriteTokens
+                )
+            } else {
+                map[key] = item
+            }
+        }
+        return map.values.sorted { $0.date < $1.date }
+    }
+
+    private static func mergePeriods(_ a: [TimePeriod], _ b: [TimePeriod]) -> [TimePeriod] {
+        let combined = Dictionary((a + b).map { ("\($0.year)/\($0.month ?? "")", $0) }) { _, new in new }
+        return combined.values.sorted { ($0.year, $0.month ?? "") > ($1.year, $1.month ?? "") }
+    }
+
+    private static func mergeDays(_ a: [String], _ b: [String]) -> [String] {
+        Array(Set(a + b)).sorted()
+    }
+
+    /// 按当前时间模式填充缺失日（含模型集合保留）
+    private func fill(_ data: [DailyModelUsage]) -> [DailyModelUsage] {
+        let pricingRules = ModelPricingStore.load()
+        let filtered = data.filter {
+            ModelPricingStore.isEnabled(forModelId: $0.modelId, variant: $0.variant, providerID: $0.providerID, rules: pricingRules)
+        }
+        if isMonthlyMode, let year = selectedYear, let month = selectedMonth {
+            if filterMode == .day, let day = selectedDay {
+                let date = Self.dateFrom(year: year, month: month, day: day)
+                return fillMissingDaysInRange(filtered, from: date, to: date)
+            }
+            return fillMissingDaysInRange(
+                filtered,
+                from: Self.dateFrom(year: year, month: month),
+                to: Self.lastDayOf(year: year, month: month)
+            )
+        }
+        if isCustomMode {
+            return fillMissingDaysInRange(filtered, from: startDate, to: endDate)
+        }
+        return fillMissingDays(filtered, days: days)
     }
 
     private static func dateFrom(year: String, month: String) -> Date {
@@ -227,10 +418,6 @@ class DailyTrendViewModel: ObservableObject {
               let nextMonth = cal.date(byAdding: .month, value: 1, to: first),
               let last = cal.date(byAdding: .day, value: -1, to: nextMonth) else { return Date() }
         return last
-    }
-
-    func applyFilter() {
-        load()
     }
 
     private func fillMissingDaysInRange(_ data: [DailyModelUsage], from startDate: Date, to endDate: Date) -> [DailyModelUsage] {

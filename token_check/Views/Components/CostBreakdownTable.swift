@@ -2,10 +2,12 @@ import SwiftUI
 
 struct CostBreakdownTable: View {
     let breakdown: [ModelCostBreakdown]
+    /// 第一列列头（opencode 模式为 "Model"，DSH 模式为 "项目"）
+    var nameColumnTitle: String = "Model"
 
     var body: some View {
         Table(breakdown) {
-            TableColumn("Model") { item in
+            TableColumn(nameColumnTitle) { item in
                 Text(item.displayName)
                     .font(.caption.weight(.medium))
             }

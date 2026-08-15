@@ -27,6 +27,16 @@ struct ModelBreakdownChart: View {
                     .opacity(isAnimated ? 1 : 0)
                 }
             }
+            .chartXAxis {
+                AxisMarks { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let n = value.as(Double.self) {
+                            Text(compactTokenLabel(n))
+                        }
+                    }
+                }
+            }
             .chartXAxisLabel("Tokens")
             .chartForegroundStyleScale([
                 "Input": Color.blue,
@@ -70,6 +80,16 @@ struct DailyTrendChart: View {
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day)) { _ in
                     AxisValueLabel(format: .dateTime.day().month())
+                }
+            }
+            .chartYAxis {
+                AxisMarks { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let n = value.as(Double.self) {
+                            Text(compactTokenLabel(n))
+                        }
+                    }
                 }
             }
             .frame(height: 200)
@@ -132,6 +152,16 @@ struct ModelBreakdownStackedChart: View {
             "Output": theme.output,
             "Reasoning": theme.reasoning
         ])
+        .chartXAxis {
+            AxisMarks { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let n = value.as(Double.self) {
+                        Text(compactTokenLabel(n))
+                    }
+                }
+            }
+        }
         .chartXAxisLabel("Tokens")
         .frame(height: CGFloat(max(modelUsage.count * 40, 120)))
         .onAppear {
@@ -146,4 +176,19 @@ struct ModelBreakdownStackedChart: View {
             }
         }
     }
+}
+
+/// 图表刻度紧凑计数格式：k / M / B（替代科学计数法）
+private func compactTokenLabel(_ n: Double) -> String {
+    let value = abs(n)
+    if value >= 1_000_000_000 {
+        return String(format: "%.1fB", n / 1_000_000_000)
+    }
+    if value >= 1_000_000 {
+        return String(format: "%.1fM", n / 1_000_000)
+    }
+    if value >= 1_000 {
+        return String(format: "%.0fK", n / 1_000)
+    }
+    return String(format: "%.0f", n)
 }

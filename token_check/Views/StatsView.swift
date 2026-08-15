@@ -43,9 +43,25 @@ struct StatsView: View {
                         }
                     }
 
+                    DataSourceSwitchBar(
+                        dataSource: $viewModel.dataSource,
+                        detailText: { source in
+                            if source == .dsh {
+                                return viewModel.dshLevel == .full
+                                    ? "DeepSeek Harness · 事件级（L2）"
+                                    : "DeepSeek Harness · 投影缓存（L1）"
+                            }
+                            return source.detailText
+                        }
+                    )
+
                     Picker("统计维度", selection: $selectedSegment) {
                         ForEach(StatsSegment.allCases, id: \.self) { seg in
-                            Text(seg.rawValue).tag(seg)
+                            if viewModel.dataSource == .dsh && seg == .efficiency {
+                                // DSH 无代码变更数据，隐藏效率维度
+                            } else {
+                                Text(seg.rawValue).tag(seg)
+                            }
                         }
                     }
                     .pickerStyle(.segmented)
@@ -69,6 +85,12 @@ struct StatsView: View {
         }
         .navigationTitle("统计")
         .onAppear { viewModel.load() }
+        .onChange(of: viewModel.dataSource) { _, _ in
+            if viewModel.dataSource == .dsh && selectedSegment == .efficiency {
+                selectedSegment = .agent
+            }
+            viewModel.load()
+        }
     }
 
     private var segmentSubtitle: String {

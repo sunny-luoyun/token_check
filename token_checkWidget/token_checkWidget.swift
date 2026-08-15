@@ -14,19 +14,161 @@ private var _lastDataReadTime: Date = .distantPast
 private var _cachedWidgetData: CombinedWidgetData?
 private let kMinDataReadInterval: TimeInterval = 5
 
+/// 小组件数据源设置（主 app 设置页写入；opencode / dsh / all）
+private func widgetDataSourceSetting() -> String {
+    guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else {
+        return "opencode"
+    }
+    return defaults.string(forKey: "widget_dataSource") ?? "opencode"
+}
+
+private func readCombinedFile(_ name: String) -> CombinedWidgetData? {
+    guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") else { return nil }
+    let url = container.appendingPathComponent(name)
+    guard let data = try? Data(contentsOf: url) else { return nil }
+    return try? JSONDecoder().decode(CombinedWidgetData.self, from: data)
+}
+
 private func readWidgetData() -> CombinedWidgetData? {
     let now = Date()
     if now.timeIntervalSince(_lastDataReadTime) < kMinDataReadInterval,
        let cached = _cachedWidgetData {
         return cached
     }
-    guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") else { return nil }
-    let url = container.appendingPathComponent("widget_data.json")
-    guard let data = try? Data(contentsOf: url) else { return nil }
-    let result = try? JSONDecoder().decode(CombinedWidgetData.self, from: data)
+    let oc = readCombinedFile("widget_data.json")
+    let dsh = readCombinedFile("dsh_widget_data.json")
+    let source = widgetDataSourceSetting()
+
+    let result: CombinedWidgetData?
+    switch source {
+    case "dsh":
+        result = dsh ?? oc
+    case "all":
+        result = mergeWidgetData(oc, dsh)
+    default:
+        result = oc ?? dsh
+    }
     _lastDataReadTime = now
     _cachedWidgetData = result
     return result
+}
+
+// MARK: - 合并（"总"模式：opencode + DSH）
+
+private func mergeWidgetData(_ oc: CombinedWidgetData?, _ dsh: CombinedWidgetData?) -> CombinedWidgetData? {
+    guard oc != nil || dsh != nil else { return nil }
+    return CombinedWidgetData(
+        todayUsage: mergeTodayUsage(oc?.todayUsage, dsh?.todayUsage),
+        monthlyHeatmap: mergeMonthlyHeatmap(oc?.monthlyHeatmap, dsh?.monthlyHeatmap),
+        yearlyHeatmap: mergeYearlyHeatmap(oc?.yearlyHeatmap, dsh?.yearlyHeatmap)
+    )
+}
+
+private func mergeTodayUsage(_ a: WidgetTodayUsage?, _ b: WidgetTodayUsage?) -> WidgetTodayUsage? {
+    guard let a else { return b }
+    guard let b else { return a }
+
+    var daily = Dictionary(uniqueKeysWithValues: a.dailyTokens.map { ($0.id, $0) })
+    for item in b.dailyTokens {
+        if let existing = daily[item.id] {
+            daily[item.id] = WidgetDayTokenData(
+                id: existing.id,
+                date: existing.date,
+                totalTokens: existing.totalTokens + item.totalTokens,
+                dailyCost: existing.dailyCost + item.dailyCost
+            )
+        } else {
+            daily[item.id] = item
+        }
+    }
+    var hourly = Dictionary(uniqueKeysWithValues: a.hourlyTokens.map { ($0.hour, $0) })
+    for item in b.hourlyTokens {
+        if let existing = hourly[item.hour] {
+            hourly[item.hour] = WidgetHourlyData(
+                hour: item.hour,
+                totalTokens: existing.totalTokens + item.totalTokens,
+                cost: existing.cost + item.cost
+            )
+        } else {
+            hourly[item.hour] = item
+        }
+    }
+
+    return WidgetTodayUsage(
+        totalTokens: a.totalTokens + b.totalTokens,
+        inputTokens: a.inputTokens + b.inputTokens,
+        outputTokens: a.outputTokens + b.outputTokens,
+        cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+        reasoningTokens: a.reasoningTokens + b.reasoningTokens,
+        cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+        sessionCount: a.sessionCount + b.sessionCount,
+        messageCount: a.messageCount + b.messageCount,
+        projectCount: a.projectCount + b.projectCount,
+        additions: a.additions + b.additions,
+        deletions: a.deletions + b.deletions,
+        files: a.files + b.files,
+        dailyTokens: daily.values.sorted { $0.date < $1.date },
+        hourlyTokens: hourly.keys.sorted().map { hourly[$0]! },
+        todayCost: a.todayCost + b.todayCost,
+        subscriptionRemaining: a.subscriptionRemaining ?? b.subscriptionRemaining,
+        subscriptionBudget: a.subscriptionBudget ?? b.subscriptionBudget,
+        subscriptionUsed: a.subscriptionUsed ?? b.subscriptionUsed,
+        subscriptionEnabled: a.subscriptionEnabled || b.subscriptionEnabled
+    )
+}
+
+private func mergeMonthlyHeatmap(_ a: WidgetMonthlyHeatmapData?, _ b: WidgetMonthlyHeatmapData?) -> WidgetMonthlyHeatmapData? {
+    guard let a else { return b }
+    guard let b else { return a }
+    var totals = Dictionary(uniqueKeysWithValues: a.days.map { ($0.id, $0.totalTokens) })
+    for day in b.days {
+        totals[day.id, default: 0] += day.totalTokens
+    }
+    let days = a.days.map { day in
+        WidgetDayTokenData(
+            id: day.id,
+            date: day.date,
+            totalTokens: totals[day.id] ?? day.totalTokens,
+            dailyCost: day.dailyCost
+        )
+    }
+    let total = a.totalTokens + b.totalTokens
+    let count = max(a.days.count, 1)
+    return WidgetMonthlyHeatmapData(
+        year: a.year,
+        month: a.month,
+        totalTokens: total,
+        avgDailyTokens: total / count,
+        days: days,
+        firstWeekday: a.firstWeekday
+    )
+}
+
+private func mergeYearlyHeatmap(_ a: WidgetYearlyHeatmapData?, _ b: WidgetYearlyHeatmapData?) -> WidgetYearlyHeatmapData? {
+    guard let a else { return b }
+    guard let b else { return a }
+    var totals = Dictionary(uniqueKeysWithValues: a.days.map { ($0.id, $0.totalTokens) })
+    for day in b.days {
+        totals[day.id, default: 0] += day.totalTokens
+    }
+    let days = a.days.map { day in
+        WidgetDayTokenData(
+            id: day.id,
+            date: day.date,
+            totalTokens: totals[day.id] ?? day.totalTokens,
+            dailyCost: day.dailyCost
+        )
+    }
+    let total = a.totalTokens + b.totalTokens
+    let count = max(a.totalDays, 1)
+    return WidgetYearlyHeatmapData(
+        year: a.year,
+        totalTokens: total,
+        avgDailyTokens: total / count,
+        days: days,
+        firstWeekday: a.firstWeekday,
+        totalDays: a.totalDays
+    )
 }
 
 private func widgetRefreshInterval() -> Int {

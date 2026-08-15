@@ -28,6 +28,10 @@ class SessionListViewModel: ObservableObject {
     @Published var showRollback: Bool {
         didSet { defaults.set(showRollback, forKey: Self.showRollbackKey) }
     }
+    @Published var dataSource: StatsDataSource {
+        didSet { defaults.set(dataSource.rawValue, forKey: Self.dataSourceKey) }
+    }
+    @Published var dshLevel: DshDetailLevel = .full
 
     var hasSessionRollback: Bool {
         sessionRollbacks.values.contains { $0.total > 0 }
@@ -35,9 +39,11 @@ class SessionListViewModel: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private static let showRollbackKey = "session_showRollback"
+    private static let dataSourceKey = "session_dataSource"
 
     init() {
         showRollback = defaults.object(forKey: Self.showRollbackKey) as? Bool ?? true
+        dataSource = StatsDataSource(rawValue: defaults.string(forKey: Self.dataSourceKey) ?? "") ?? .opencode
     }
 
     var availableYears: [String] {
@@ -64,32 +70,86 @@ class SessionListViewModel: ObservableObject {
         isLoading = true
         error = nil
 
+        switch dataSource {
+        case .opencode: loadOpencode()
+        case .dsh: loadDsh()
+        case .all: loadAll()
+        }
+    }
+
+    func applyFilter() {
+        load()
+    }
+
+    // MARK: - 数据获取（opencode / DSH）
+
+    private func currentFilter() -> DshTimeFilter {
+        if filterMode == .range {
+            return DshTimeFilter(from: startDate, to: endDate, year: nil, month: nil, day: nil)
+        }
+        return DshTimeFilter(from: nil, to: nil, year: selectedYear, month: selectedMonth, day: selectedDay)
+    }
+
+    private struct OpencodeSessionData {
+        let sessions: [Session]
+        let periods: [TimePeriod]
+        let days: [String]
+        let rollbacks: [String: RollbackRecord]
+    }
+
+    private func fetchOpencodeData() throws -> OpencodeSessionData {
+        if let ds = DatabaseService.shared, let db = ds.db {
+            TokenDeltaTracker.shared.refresh(db: db)
+        }
+        guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
+        let rb = TokenDeltaTracker.shared.sessionRollbacks
+        let periods = try service.fetchAvailablePeriods()
+        let sessions: [Session]
+        if filterMode == .range {
+            sessions = try service.fetchSessions(from: startDate, to: endDate, limit: 200)
+        } else {
+            sessions = try service.fetchSessions(year: selectedYear, month: selectedMonth, day: selectedDay, limit: 200)
+        }
+
+        var days: [String] = []
+        if filterMode == .day, let year = selectedYear, let month = selectedMonth {
+            days = try service.fetchAvailableDays(year: year, month: month)
+        }
+
+        return OpencodeSessionData(sessions: sessions, periods: periods, days: days, rollbacks: rb)
+    }
+
+    private struct DshSessionData {
+        let sessions: [Session]
+        let periods: [TimePeriod]
+        let days: [String]
+        let level: DshDetailLevel
+    }
+
+    private func fetchDshData() -> DshSessionData? {
+        guard case .success(let dataSource) = DshService.shared.loadDetailedData() else {
+            return nil
+        }
+        let sessions = dataSource.sessions(currentFilter())
+        var days: [String] = []
+        if filterMode == .day {
+            days = dataSource.days(year: selectedYear, month: selectedMonth)
+        }
+        return DshSessionData(sessions: sessions, periods: dataSource.periods(), days: days, level: dataSource.level)
+    }
+
+    // MARK: - opencode 数据源
+
+    private func loadOpencode() {
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
-            if let ds = DatabaseService.shared, let db = ds.db {
-                TokenDeltaTracker.shared.refresh(db: db)
-            }
             do {
-                guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
-                let rb = TokenDeltaTracker.shared.sessionRollbacks
-                let periods = try service.fetchAvailablePeriods()
-                let sessions: [Session]
-                if self.filterMode == .range {
-                    sessions = try service.fetchSessions(from: self.startDate, to: self.endDate, limit: 200)
-                } else {
-                    sessions = try service.fetchSessions(year: self.selectedYear, month: self.selectedMonth, day: self.selectedDay, limit: 200)
-                }
-
-                var days: [String] = []
-                if self.filterMode == .day, let year = self.selectedYear, let month = self.selectedMonth {
-                    days = try service.fetchAvailableDays(year: year, month: month)
-                }
-
+                let data = try self.fetchOpencodeData()
                 DispatchQueue.main.async {
-                    self.periods = periods
-                    self.sessions = sessions
-                    self.availableDays = ["全部"] + days
-                    self.sessionRollbacks = rb
+                    self.periods = data.periods
+                    self.sessions = data.sessions
+                    self.availableDays = ["全部"] + data.days
+                    self.sessionRollbacks = data.rollbacks
                     self.isLoading = false
                 }
             } catch {
@@ -101,7 +161,88 @@ class SessionListViewModel: ObservableObject {
         }
     }
 
-    func applyFilter() {
-        load()
+    // MARK: - DSH 数据源
+
+    private func loadDsh() {
+        DatabaseService.loadQueue.addOperation { [weak self] in
+            guard let self else { return }
+
+            switch DshService.shared.loadDetailedData() {
+            case .success(let dataSource):
+                let data = self.fetchDshData() ?? DshSessionData(sessions: [], periods: dataSource.periods(), days: [], level: dataSource.level)
+                DispatchQueue.main.async {
+                    self.periods = data.periods
+                    self.sessions = data.sessions
+                    self.availableDays = ["全部"] + data.days
+                    self.sessionRollbacks = [:]
+                    self.dshLevel = data.level
+                    self.isLoading = false
+                }
+            case .missing:
+                DispatchQueue.main.async {
+                    self.sessions = []
+                    self.periods = []
+                    self.availableDays = []
+                    self.error = "未检测到 DSH 数据（\(DshService.dshHomePath ?? "~/.dsh") 下无投影缓存）。\n请先通过 DeepSeek Harness 开始至少一个会话。"
+                    self.isLoading = false
+                }
+            case .failure(let message):
+                DispatchQueue.main.async {
+                    self.sessions = []
+                    self.error = message
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+
+    // MARK: - 合并统计（opencode + DSH）
+
+    private func loadAll() {
+        DatabaseService.loadQueue.addOperation { [weak self] in
+            guard let self else { return }
+
+            var ocError: String?
+            var ocData: OpencodeSessionData?
+            do {
+                ocData = try self.fetchOpencodeData()
+            } catch {
+                ocError = error.localizedDescription
+            }
+            let dshData = self.fetchDshData()
+
+            if ocData == nil, dshData == nil {
+                DispatchQueue.main.async {
+                    self.error = ocError ?? "未检测到 DSH 数据（\(DshService.dshHomePath ?? "~/.dsh") 下无投影缓存）"
+                    self.isLoading = false
+                }
+                return
+            }
+
+            // 按时间倒序合并（opencode 在前，DSH 会话 id 前缀不同不会冲突）
+            var merged = (ocData?.sessions ?? []) + (dshData?.sessions ?? [])
+            merged.sort { $0.timeCreated > $1.timeCreated }
+
+            let mergedPeriods = Self.mergePeriods(ocData?.periods ?? [], dshData?.periods ?? [])
+            let mergedDays = Self.mergeDays(ocData?.days ?? [], dshData?.days ?? [])
+
+            DispatchQueue.main.async {
+                self.periods = mergedPeriods
+                self.sessions = merged
+                self.availableDays = ["全部"] + mergedDays
+                self.sessionRollbacks = ocData?.rollbacks ?? [:]
+                self.dshLevel = dshData?.level ?? .missing
+                self.isLoading = false
+            }
+        }
+    }
+
+    private static func mergePeriods(_ a: [TimePeriod], _ b: [TimePeriod]) -> [TimePeriod] {
+        let combined = Dictionary((a + b).map { ("\($0.year)/\($0.month ?? "")", $0) }) { _, new in new }
+        return combined.values.sorted { ($0.year, $0.month ?? "") > ($1.year, $1.month ?? "") }
+    }
+
+    private static func mergeDays(_ a: [String], _ b: [String]) -> [String] {
+        Array(Set(a + b)).sorted()
     }
 }

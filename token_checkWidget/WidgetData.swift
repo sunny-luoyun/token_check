@@ -70,6 +70,48 @@ struct WidgetTodayUsage: Codable {
         case subscriptionRemaining, subscriptionBudget, subscriptionUsed, subscriptionEnabled
     }
 
+    init(
+        totalTokens: Int,
+        inputTokens: Int,
+        outputTokens: Int,
+        cacheReadTokens: Int,
+        reasoningTokens: Int,
+        cacheWriteTokens: Int,
+        sessionCount: Int,
+        messageCount: Int,
+        projectCount: Int,
+        additions: Int,
+        deletions: Int,
+        files: Int,
+        dailyTokens: [WidgetDayTokenData],
+        hourlyTokens: [WidgetHourlyData],
+        todayCost: Double,
+        subscriptionRemaining: Double? = nil,
+        subscriptionBudget: Double? = nil,
+        subscriptionUsed: Double? = nil,
+        subscriptionEnabled: Bool = false
+    ) {
+        self.totalTokens = totalTokens
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.reasoningTokens = reasoningTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.sessionCount = sessionCount
+        self.messageCount = messageCount
+        self.projectCount = projectCount
+        self.additions = additions
+        self.deletions = deletions
+        self.files = files
+        self.dailyTokens = dailyTokens
+        self.hourlyTokens = hourlyTokens
+        self.todayCost = todayCost
+        self.subscriptionRemaining = subscriptionRemaining
+        self.subscriptionBudget = subscriptionBudget
+        self.subscriptionUsed = subscriptionUsed
+        self.subscriptionEnabled = subscriptionEnabled
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         totalTokens = try container.decode(Int.self, forKey: .totalTokens)

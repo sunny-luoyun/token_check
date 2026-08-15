@@ -266,9 +266,21 @@ class TokenViewModel: ObservableObject {
 
             // 在后台队列执行文件写入 + Widget 刷新，不阻塞 loadQueue
             widgetDataQueue.async {
-                guard let encoded = try? JSONEncoder().encode(combined),
-                      let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") else {
-                    self.logger.notice("widget data 编码或 container 获取失败")
+                guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.luoyun.tokencheck") else {
+                    self.logger.notice("widget container 获取失败")
+                    return
+                }
+
+                // DSH 版 widget 数据（小组件数据源切到 DSH/总 时使用；每次刷新都写，保证及时）
+                if let dshWidgetData = DshWidgetDataService.shared.fetchWidgetData(),
+                   let dshEncoded = try? JSONEncoder().encode(dshWidgetData) {
+                    let dshURL = container.appendingPathComponent("dsh_widget_data.json")
+                    try? dshEncoded.write(to: dshURL, options: .atomic)
+                    self.logger.notice("dsh widget 文件写入完成")
+                }
+
+                guard let encoded = try? JSONEncoder().encode(combined) else {
+                    self.logger.notice("widget data 编码失败")
                     return
                 }
                 let url = container.appendingPathComponent("widget_data.json")
@@ -282,8 +294,12 @@ class TokenViewModel: ObservableObject {
                 self.reloadWidgetTimelines()
 
                 let clashService = ClashTrafficService()
-                clashService.fetchAndWriteTrafficData()
-                self.logger.notice("Clash 流量数据已更新")
+                let clashOK = clashService.fetchAndWriteTrafficData()
+                if clashOK {
+                    self.logger.notice("Clash 流量数据已更新")
+                } else {
+                    self.logger.notice("Clash 流量更新失败（订阅地址不可达）")
+                }
             }
             let totalElapsed = CFAbsoluteTimeGetCurrent() - t0
             self.logger.notice("Total refresh: \(String(format: "%.1f", totalElapsed * 1000), privacy: .public)ms")

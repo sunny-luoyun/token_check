@@ -34,6 +34,18 @@ struct CostDashboardView: View {
                         }
                     }
 
+                    DataSourceSwitchBar(
+                        dataSource: $viewModel.dataSource,
+                        detailText: { source in
+                            if source == .dsh {
+                                return viewModel.dshLevel == .full
+                                    ? "DeepSeek Harness · 事件级（L2）"
+                                    : "DeepSeek Harness · 投影缓存（L1）"
+                            }
+                            return source.detailText
+                        }
+                    )
+
                     Divider()
 
                     ScrollView {
@@ -68,6 +80,9 @@ struct CostDashboardView: View {
             viewModel.load()
         }
         .onReceive(NotificationCenter.default.publisher(for: SharedStorage.pricingRulesUpdated)) { _ in
+            viewModel.load()
+        }
+        .onChange(of: viewModel.dataSource) { _, _ in
             viewModel.load()
         }
     }
@@ -193,8 +208,12 @@ struct CostDashboardView: View {
 
             StatCardView(
                 title: "推理",
-                value: formatTokens(summary.totalReasoningTokens),
-                subtitle: formatCost(summary.reasoningCost),
+                value: viewModel.dataSource == .dsh && viewModel.dshLevel != .full
+                    ? "—"
+                    : formatTokens(summary.totalReasoningTokens),
+                subtitle: viewModel.dataSource == .dsh && viewModel.dshLevel != .full
+                    ? "含于输出"
+                    : formatCost(summary.reasoningCost),
                 icon: "brain.head.profile.fill",
                 color: theme.reasoning
             )
@@ -204,9 +223,10 @@ struct CostDashboardView: View {
     }
 
     private var costTable: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let isDshProject = viewModel.dataSource == .dsh && viewModel.dshLevel != .full
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("按 Model 分解")
+                Text(isDshProject ? "按项目分解" : "按 Model 分解")
                     .font(.headline)
                 Spacer()
             }
@@ -216,8 +236,11 @@ struct CostDashboardView: View {
                     .frame(height: CGFloat(max(viewModel.modelBreakdown.count * 40, 120)))
             }
 
-            CostBreakdownTable(breakdown: viewModel.modelBreakdown)
-                .frame(minHeight: 100, idealHeight: 360)
+            CostBreakdownTable(
+                breakdown: viewModel.modelBreakdown,
+                nameColumnTitle: isDshProject ? "项目" : "Model"
+            )
+            .frame(minHeight: 100, idealHeight: 360)
         }
         .padding(16)
         .mainContentCard()
