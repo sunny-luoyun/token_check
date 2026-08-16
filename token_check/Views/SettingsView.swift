@@ -780,14 +780,16 @@ struct SettingsView: View {
                 let models = try service.fetchModelUsage().map {
                     savedLookup[$0.id] ?? .defaults(providerID: $0.providerID, modelId: $0.modelId, variant: $0.variant)
                 }
-                let merged = Self.mergePricingRules(models: models, savedRules: savedRules)
+                // 合并 DSH 数据源出现过的模型（默认路由 + 事件级），
+                // 让只走 DeepSeek Harness / 中转站的模型也能在设置里配置价格
+                let merged = Self.mergePricingRules(models: models + Self.dshModels(), savedRules: savedRules)
 
                 DispatchQueue.main.async {
                     self.pricingRules = merged
                     self.isLoadingPricing = false
                 }
             } catch {
-                let merged = Self.mergePricingRules(models: [], savedRules: savedRules)
+                let merged = Self.mergePricingRules(models: Self.dshModels(), savedRules: savedRules)
                 DispatchQueue.main.async {
                     self.pricingRules = merged
                     self.pricingError = merged.isEmpty ? error.localizedDescription : nil
@@ -795,6 +797,32 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// 枚举 DSH 数据源出现过的模型：默认模型路由（settings.yaml agent-default-model）+
+    /// 事件级模型（~/.dsh/sessions 的 provider/model）。用于合并进「模型价格」设置列表。
+    private static func dshModels() -> [ModelPricingRule] {
+        guard case .success(let dataSource) = DshService.shared.loadDetailedData() else { return [] }
+
+        var seen = Set<String>()
+        var result: [ModelPricingRule] = []
+        func add(_ providerID: String, _ modelId: String, _ variant: String) {
+            let id = modelId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, id != "unknown" else { return }
+            let key = "\(providerID)/\(id)/\(variant)"
+            guard seen.insert(key).inserted else { return }
+            result.append(.defaults(providerID: providerID, modelId: id, variant: variant))
+        }
+
+        // 默认模型路由（settings.yaml agent-default-model），L1 回退时也能配置价格
+        let dm = dataSource.defaultModel
+        add(dm.providerID, dm.modelId, dm.variant)
+
+        // 事件级模型（L2 full：实际调用过的 provider/model）
+        for event in dataSource.events {
+            add(event.providerID, event.modelId, "default")
+        }
+        return result
     }
 
     private func savePricingRules() {
