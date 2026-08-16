@@ -113,13 +113,62 @@ class TokenViewModel: ObservableObject {
     }
 
     private func reloadWidgetTimelines() {
-        let allKinds = ["TokenCheckLargeWidgetV3", "TokenCheckWidgetV2", "TokenCheckSmallWidgetV2", "ClashTrafficWidget"]
+        let kinds = liveWidgetKinds()
+        let skipped = Self.allWidgetKinds.filter { !kinds.contains($0) }
+        if !skipped.isEmpty {
+            logger.notice("跳过无存活实例的 widget kind（幽灵实例防护）: \(skipped.joined(separator: ", "), privacy: .public)")
+        }
         let step = 0.3
         DispatchQueue.main.async {
-            for (index, kind) in allKinds.enumerated() {
+            for (index, kind) in kinds.enumerated() {
                 DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * step) {
                     WidgetCenter.shared.reloadTimelines(ofKind: kind)
                 }
+            }
+        }
+    }
+
+    /// 所有已注册的 widget kind（与 token_checkWidget 中各 Widget.kind 一一对应）
+    private static let allWidgetKinds = [
+        "TokenCheckLargeWidgetV3",
+        "TokenCheckWidgetV2",
+        "TokenCheckSmallWidgetV2",
+        "ClashTrafficWidget"
+    ]
+
+    /// 幽灵实例防护：只返回仍有存活实例的 widget kind。
+    ///
+    /// 判断依据：存活实例的 timeline 文件会随每次数据变化被 chronod 重写；
+    /// 已从通知中心/桌面移除的幽灵实例，其 chrono/timelines/<kind>/ 下的文件
+    /// 会永久冻结。对幽灵 kind 调用 reloadTimelines 会触发 chronod
+    /// "No matching descriptor" 重试与 pendingTasks 堆积，导致通知中心卡顿
+    /// 10 秒以上（见 AGENTS.md 卡顿排查记录）。
+    ///
+    /// 回退策略：读不到 chrono 容器时返回全部 kind（保持原行为）；
+    /// kind 目录不存在（从未实例化）时跳过；目录存在但文件超过 24 小时未
+    /// 更新时跳过（小组件自带 .after 时间线策略，存活实例恢复数据变化后
+    /// 文件会自动变新，跳过只是暂时少一次主动刷新）。
+    private func liveWidgetKinds(now: Date = Date()) -> [String] {
+        let timelinesRoot = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Containers/com.luoyun.tokencheck.widget/Data/SystemData/com.apple.chrono/timelines")
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: timelinesRoot.path, isDirectory: &isDir), isDir.boolValue else {
+            return Self.allWidgetKinds
+        }
+        let cutoff = now.addingTimeInterval(-24 * 3600)
+        return Self.allWidgetKinds.filter { kind in
+            let dir = timelinesRoot.appendingPathComponent(kind)
+            guard let files = try? fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ), !files.isEmpty else {
+                return false
+            }
+            return files.contains { file in
+                let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                return (mtime ?? .distantPast) > cutoff
             }
         }
     }

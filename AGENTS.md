@@ -128,3 +128,42 @@ killall NotificationCenter
 - 改 `kind` 只是触发因素，真正让幽灵实例"永生"的是 NotificationCenter 的 fd 缓存
 - 代码层面无法预防（系统行为），复发时执行上述清理即可
 - 2026-08-14 实测：清理后每次刷新卡顿 <1 秒，恢复正常
+
+## 2026-08-16 复发确认：幽灵 kind 被 app 无差别 reload 重新喂毒
+
+**现象：** 8/14 修复后短暂正常，随后通知中心/桌面小组件每次刷新再次卡顿 10 秒以上，
+使用越久越严重（"垃圾堆积"感）。用户以为是 8/15 DSH 数据源更新引入的。
+
+**排查结论（证据链）：**
+1. 解码通知中心实例注册表
+   `~/Library/Containers/com.apple.notificationcenterui/Data/Library/Preferences/com.apple.notificationcenterui.plist`
+   的 `widgets.instances`（NSKeyedArchiver）：token_check 目前只有 **2 个存活实例**——
+   `TokenCheckLargeWidgetV3`（desktop Large）和 `ClashTrafficWidget`（desktop Small）。
+   **没有** `TokenCheckSmallWidgetV2`、也没有 `TokenCheckWidgetV2`。
+2. `timelines/TokenCheckSmallWidgetV2/` 下的 timeline 文件冻结在 **2026-08-14 09:30**
+   （上一次清理会话期间被移除），而 V3 / Clash 的文件每个刷新周期都在更新
+   （如 16:10:01 / 16:10:02）。
+3. app 每次数据变化都会对 **全部 4 个 kind** 调用 `WidgetCenter.reloadTimelines(ofKind:)`
+   （TokenViewModel.reloadWidgetTimelines 硬编码列表）。对幽灵 kind 的 reload 会重新触发
+   chronod "No matching descriptor" 重试与 pendingTasks 堆积 —— 正是 AGENTS.md 已记录的
+   卡顿机制。8/14 的 `killall NotificationCenter` 清了一次存量，但 app 每个周期继续给
+   幽灵 kind 喂 reload 请求，垃圾重新堆积，约一天后回到 10 秒+。
+4. 8/15 DSH 提交对 reload 逻辑零改动（git diff 可证），只是时间上恰好撞上堆积过阈值的点。
+
+**修复（代码，2026-08-16）：**
+- `TokenViewModel.reloadWidgetTimelines` 不再无差别 reload 4 个 kind，
+  新增 `liveWidgetKinds()` 过滤：只 reload `timelines/<kind>/` 下有 24 小时内更新
+  文件的 kind（存活实例的 timeline 文件会随数据变化被 chronod 重写；幽灵文件永久冻结）。
+- 读不到 chrono 容器时回退到全部 kind（保持旧行为）；kind 目录不存在则跳过。
+- 小组件自带 `.after(nextUpdate)` 时间线策略，即使被暂时跳过，存活实例也会在
+  下一个周期自动刷新并把文件变新，因此该过滤自愈、不会永久漏刷。
+
+**复发时的清理步骤（终端执行，需要先退出 token_check 主程序可选）：**
+```bash
+# 1. 删除幽灵 timeline 文件（本例为小热力图 kind）
+rm -f ~/Library/Containers/com.luoyun.tokencheck.widget/Data/SystemData/com.apple.chrono/timelines/TokenCheckSmallWidgetV2/*.chrono-timeline
+
+# 2. 重启 NotificationCenter 清空 fd 缓存（关键步骤！）
+killall NotificationCenter
+```
+清理后 app 下次刷新会自动重建真实实例的 4 条 ReloadState（正常行为）。
