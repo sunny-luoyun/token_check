@@ -515,13 +515,22 @@ struct SettingsView: View {
             }
         }
 
+        /// 价格格式化：最多 6 位小数，去掉多余的尾零（如 0.140000 → 0.14）
+        private static func formatPrice(_ value: Double) -> String {
+            let formatted = String(format: "%.6f", value)
+            var trimmed = formatted
+            while trimmed.hasSuffix("0") { trimmed.removeLast() }
+            if trimmed.hasSuffix(".") { trimmed.removeLast() }
+            return trimmed
+        }
+
         private var currentPriceSummary: String {
             let now = Date.now
             let prices = rule.price(at: now)
             let df = DateFormatter()
             df.dateFormat = "MM-dd"
             let active = rule.periods.first { now >= $0.effectiveFrom && ($0.effectiveTo == nil || now < $0.effectiveTo!) }
-            var summary = "输入 $\(String(format: "%.2f", prices.inputMiss)) / 缓存 $\(String(format: "%.4f", prices.cacheHit)) / 输出 $\(String(format: "%.2f", prices.output))"
+            var summary = "输入 $\(Self.formatPrice(prices.inputMiss)) / 缓存 $\(Self.formatPrice(prices.cacheHit)) / 输出 $\(Self.formatPrice(prices.output))"
             if let active = active, let windows = active.timeWindows, !windows.isEmpty {
                 let hour = Calendar.current.component(.hour, from: now)
                 if let w = windows.first(where: { hour >= $0.startHour && hour < $0.endHour }) {
@@ -696,10 +705,10 @@ struct SettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(width: 56, alignment: .trailing)
-                TextField("", value: value, format: .number.precision(.fractionLength(0...4)))
+                TextField("", value: value, format: .number.precision(.fractionLength(0...6)))
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
-                    .frame(width: 80)
+                    .frame(width: 96)
             }
         }
 
