@@ -1121,8 +1121,36 @@ private struct DiskUsageDetailView: View {
             DiskUsageRow(icon: "rectangle.stack.fill", label: "会话记录",   value: "\(usage.sessionCount) 条")
             DiskUsageRow(icon: "text.bubble.fill",     label: "消息记录",   value: "\(usage.messageCount) 条")
             DiskUsageRow(icon: "doc.text.fill",        label: "事件日志",   value: "\(usage.eventCount) 条")
+
+            Divider()
+                .padding(.vertical, 2)
+
+            HStack(spacing: 8) {
+                Image(systemName: "server.rack")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
+                Text("DSH 数据")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+            }
+
+            DiskUsageRow(icon: "externaldrive.fill", label: "数据大小", value: usage.dshFileSize)
+            DiskUsageRow(icon: "rectangle.stack.fill", label: "会话记录", value: dshSessionText)
+            DiskUsageRow(icon: "text.bubble.fill",     label: "消息记录", value: dshMessageText)
+            DiskUsageRow(icon: "doc.text.fill",        label: "事件日志", value: dshEventText)
         }
         .padding(.vertical, 4)
+    }
+
+    /// zstd 不可用/无数据时展示「—」
+    private var dshSessionText: String { "\(usage.dshSessionCount) 条" }
+    private var dshMessageText: String {
+        usage.dshMessageCount > 0 ? "\(usage.dshMessageCount) 条" : "—"
+    }
+    private var dshEventText: String {
+        usage.dshEventCount > 0 ? "\(usage.dshEventCount) 条" : "—"
     }
 }
 
