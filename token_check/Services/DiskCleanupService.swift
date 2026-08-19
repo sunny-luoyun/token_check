@@ -37,13 +37,20 @@ final class DiskCleanupService {
             sqlite3_close(dc)
         }
 
+        let dsh = fetchDshUsage()
+
         return DiskUsage(
             dbFileSize: formatBytes(ocSize + dcSize),
             sessionCount: ocSessions + dcSessions,
             messageCount: ocMessages + dcMessages,
             partCount: ocParts + dcParts,
             eventCount: ocEvents + dcEvents,
-            dbSizeBytes: ocSize + dcSize
+            dbSizeBytes: ocSize + dcSize,
+            dshFileSize: formatBytes(dsh.sizeBytes),
+            dshSizeBytes: dsh.sizeBytes,
+            dshSessionCount: dsh.sessionCount,
+            dshMessageCount: dsh.messageCount,
+            dshEventCount: dsh.eventCount
         )
     }
 
@@ -65,6 +72,66 @@ final class DiskCleanupService {
         guard sqlite3_open_v2(devecoPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return nil }
         sqlite3_busy_timeout(db, 5000)
         return db
+    }
+
+    // MARK: - DSH 用量
+
+    /// DSH 用量：sessions/ 目录全部文件 + storages/ 目录全部文件。
+    /// 会话数 = sessions/ 下会话目录数；消息/事件数来自 DshEventStore（zstd 不可用时为 0）。
+    private func fetchDshUsage() -> (sizeBytes: Int64, sessionCount: Int, messageCount: Int, eventCount: Int) {
+        guard let home = DshService.dshHomePath else { return (0, 0, 0, 0) }
+        let fm = FileManager.default
+        let sessionsDir = URL(fileURLWithPath: home).appendingPathComponent("sessions")
+        let storagesDir = URL(fileURLWithPath: home).appendingPathComponent("storages")
+
+        let sessionsSize = directorySize(sessionsDir)
+        let storagesSize = directorySize(storagesDir)
+
+        let sessionCount = countSessionDirs(sessionsDir)
+
+        var messageCount = 0
+        var eventCount = 0
+        let all = DshEventStore.shared.loadAll()
+        for item in all.values {
+            messageCount += item.userMessages + item.assistantMessages
+            eventCount += item.events.count
+        }
+
+        return (sessionsSize + storagesSize, sessionCount, messageCount, eventCount)
+    }
+
+    /// 递归求和目录下所有文件的逻辑字节大小（含子目录）；目录不存在返回 0。
+    private func directorySize(_ dir: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(
+            at: dir,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+            if let size = values?.fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    /// 统计 sessions/ 下的一级会话目录数；目录不存在返回 0。
+    private func countSessionDirs(_ sessionsDir: URL) -> Int {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: sessionsDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var count = 0
+        for url in contents {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                count += 1
+            }
+        }
+        return count
     }
 
     // MARK: - Helpers
