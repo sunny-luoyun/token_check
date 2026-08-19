@@ -94,26 +94,47 @@ private func mergeTodayUsage(_ a: WidgetTodayUsage?, _ b: WidgetTodayUsage?) -> 
         }
     }
 
+    let mergedDailyTokens = daily.values.sorted { $0.date < $1.date }
+    let mergedHourlyTokens = hourly.keys.sorted().map { hourly[$0]! }
+    let totalTokens = a.totalTokens + b.totalTokens
+    let inputTokens = a.inputTokens + b.inputTokens
+    let outputTokens = a.outputTokens + b.outputTokens
+    let cacheReadTokens = a.cacheReadTokens + b.cacheReadTokens
+    let reasoningTokens = a.reasoningTokens + b.reasoningTokens
+    let cacheWriteTokens = a.cacheWriteTokens + b.cacheWriteTokens
+    let sessionCount = a.sessionCount + b.sessionCount
+    let messageCount = a.messageCount + b.messageCount
+    let projectCount = a.projectCount + b.projectCount
+    let additions = a.additions + b.additions
+    let deletions = a.deletions + b.deletions
+    let files = a.files + b.files
+    let todayCost = a.todayCost + b.todayCost
+    let subscriptionRemaining = a.subscriptionRemaining ?? b.subscriptionRemaining
+    let subscriptionBudget = a.subscriptionBudget ?? b.subscriptionBudget
+    let subscriptionUsed = a.subscriptionUsed ?? b.subscriptionUsed
+    let subscriptionEnabled = a.subscriptionEnabled || b.subscriptionEnabled
+    let subscriptionPeriodEnd = a.subscriptionPeriodEnd ?? b.subscriptionPeriodEnd
     return WidgetTodayUsage(
-        totalTokens: a.totalTokens + b.totalTokens,
-        inputTokens: a.inputTokens + b.inputTokens,
-        outputTokens: a.outputTokens + b.outputTokens,
-        cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
-        reasoningTokens: a.reasoningTokens + b.reasoningTokens,
-        cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
-        sessionCount: a.sessionCount + b.sessionCount,
-        messageCount: a.messageCount + b.messageCount,
-        projectCount: a.projectCount + b.projectCount,
-        additions: a.additions + b.additions,
-        deletions: a.deletions + b.deletions,
-        files: a.files + b.files,
-        dailyTokens: daily.values.sorted { $0.date < $1.date },
-        hourlyTokens: hourly.keys.sorted().map { hourly[$0]! },
-        todayCost: a.todayCost + b.todayCost,
-        subscriptionRemaining: a.subscriptionRemaining ?? b.subscriptionRemaining,
-        subscriptionBudget: a.subscriptionBudget ?? b.subscriptionBudget,
-        subscriptionUsed: a.subscriptionUsed ?? b.subscriptionUsed,
-        subscriptionEnabled: a.subscriptionEnabled || b.subscriptionEnabled
+        totalTokens: totalTokens,
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        cacheReadTokens: cacheReadTokens,
+        reasoningTokens: reasoningTokens,
+        cacheWriteTokens: cacheWriteTokens,
+        sessionCount: sessionCount,
+        messageCount: messageCount,
+        projectCount: projectCount,
+        additions: additions,
+        deletions: deletions,
+        files: files,
+        dailyTokens: mergedDailyTokens,
+        hourlyTokens: mergedHourlyTokens,
+        todayCost: todayCost,
+        subscriptionRemaining: subscriptionRemaining,
+        subscriptionBudget: subscriptionBudget,
+        subscriptionUsed: subscriptionUsed,
+        subscriptionPeriodEnd: subscriptionPeriodEnd,
+        subscriptionEnabled: subscriptionEnabled
     )
 }
 
@@ -878,7 +899,7 @@ struct LargeWidgetEntryView: View {
                    let budget = usage.subscriptionBudget,
                    let used = usage.subscriptionUsed,
                    budget > 0 {
-                    subscriptionProgressView(used: used, budget: budget, remaining: remaining)
+                    subscriptionProgressView(used: used, budget: budget, remaining: remaining, periodEnd: usage.subscriptionPeriodEnd)
                 }
                 connectionIndicator()
             }
@@ -1194,7 +1215,7 @@ struct LargeWidgetEntryView: View {
         }
     }
 
-    private func subscriptionProgressView(used: Double, budget: Double, remaining: Double) -> some View {
+    private func subscriptionProgressView(used: Double, budget: Double, remaining: Double, periodEnd: Double?) -> some View {
         let ratio = min(used / budget, 1.0)
         let barColor: Color = ratio < 0.5 ? .green : (ratio < 0.8 ? .orange : .red)
         let pct = Int(ratio * 100)
@@ -1210,6 +1231,15 @@ struct LargeWidgetEntryView: View {
             Text("\(pct)%")
                 .font(.system(size: 10, weight: .bold).monospacedDigit())
                 .foregroundStyle(barColor)
+            if let periodEnd = periodEnd {
+                let remainMs = periodEnd - Date().timeIntervalSince1970 * 1000
+                if remainMs > 0 {
+                    let hours = Int(remainMs / 3_600_000)
+                    Text("剩\(hours / 24)天\(hours % 24)h")
+                        .font(.system(size: 9).monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(.leading, 4)
     }
