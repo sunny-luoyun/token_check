@@ -1144,7 +1144,7 @@ private struct DiskUsageDetailView: View {
         .padding(.vertical, 4)
     }
 
-    /// zstd 不可用/无数据时展示「—」
+    /// 会话数按 sessions/ 目录计数，不依赖 zstd
     private var dshSessionText: String { "\(usage.dshSessionCount) 条" }
     private var dshMessageText: String {
         usage.dshMessageCount > 0 ? "\(usage.dshMessageCount) 条" : "—"
