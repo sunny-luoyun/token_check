@@ -281,6 +281,7 @@ class TokenViewModel: ObservableObject {
                 subscriptionRemaining: subscriptionData?.remaining,
                 subscriptionBudget: subscriptionData?.budget,
                 subscriptionUsed: subscriptionData?.used,
+                subscriptionPeriodEnd: subscriptionData?.periodEnd,
                 subscriptionEnabled: subscriptionData != nil
             )
 

@@ -53,6 +53,7 @@ struct TodayUsage: Codable {
     let subscriptionRemaining: Double?
     let subscriptionBudget: Double?
     let subscriptionUsed: Double?
+    let subscriptionPeriodEnd: Double?
     let subscriptionEnabled: Bool
 
     init(
@@ -65,6 +66,7 @@ struct TodayUsage: Codable {
         subscriptionRemaining: Double? = nil,
         subscriptionBudget: Double? = nil,
         subscriptionUsed: Double? = nil,
+        subscriptionPeriodEnd: Double? = nil,
         subscriptionEnabled: Bool = false
     ) {
         self.totalTokens = totalTokens
@@ -85,6 +87,7 @@ struct TodayUsage: Codable {
         self.subscriptionRemaining = subscriptionRemaining
         self.subscriptionBudget = subscriptionBudget
         self.subscriptionUsed = subscriptionUsed
+        self.subscriptionPeriodEnd = subscriptionPeriodEnd
         self.subscriptionEnabled = subscriptionEnabled
     }
 }
@@ -583,23 +586,25 @@ final class WidgetDataService {
 
     // MARK: - 订阅计费统计
 
-    func computeSubscriptionData() -> (used: Double, budget: Double, remaining: Double)? {
+    func computeSubscriptionData() -> (used: Double, budget: Double, remaining: Double, periodEnd: Double)? {
         guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
               defaults.bool(forKey: "subscriptionEnabled") else { return nil }
 
-        let startDay = defaults.integer(forKey: "subscriptionStartDay")
+        let startMs = defaults.double(forKey: "subscriptionPeriodStart")
+        let durationDays = defaults.integer(forKey: "subscriptionPeriodDurationDays")
         let budget = defaults.double(forKey: "subscriptionBudget")
-        guard startDay >= 1 && startDay <= 31 && budget > 0 else { return nil }
+        guard startMs > 0, durationDays >= 1, budget > 0 else { return nil }
 
-        let periodStart = currentSubscriptionStartDate(startDay: startDay)
-        let startMs = Int64(periodStart.timeIntervalSince1970 * 1000)
+        let startDate = Date(timeIntervalSince1970: startMs / 1000)
+        let periodEnd = startMs + Double(durationDays) * 86_400_000
 
-        logger.debug("订阅: startDay=\(startDay) periodStart=\(ISO8601DateFormatter().string(from: periodStart)) budget=\(budget)")
+        logger.debug("订阅: periodStart=\(ISO8601DateFormatter().string(from: startDate)) durationDays=\(durationDays) budget=\(budget)")
 
-        let used = fetchOpenCodeGoCost(startDateMs: startMs)
-        logger.debug("订阅已用: \(String(format: "%.2f", used)) / \(String(format: "%.0f", budget)) = \(String(format: "%.0f", used / budget * 100))%")
+        let used = fetchOpenCodeGoCost(startDateMs: Int64(startMs))
+                 + fetchDshOpencodeGoEstimatedCost(startDateMs: Int64(startMs))
+        logger.debug("订阅已用: \(String(format: "%.2f", used)) / \(String(format: "%.0f", budget)) = \(String(format: "%.0f", used / budget * 100))% (含 DSH 估算)")
 
-        return (used, budget, max(budget - used, 0))
+        return (used, budget, max(budget - used, 0), periodEnd)
     }
 
     private func fetchOpenCodeGoCost(startDateMs: Int64) -> Double {
@@ -616,28 +621,28 @@ final class WidgetDataService {
         return sqlite3_column_double(stmt, 0)
     }
 
-    private func currentSubscriptionStartDate(startDay: Int) -> Date {
-        let cal = Calendar.current
-        let today = Date()
-        let comps = cal.dateComponents([.year, .month, .day], from: today)
-
-        let daysThisMonth = cal.range(of: .day, in: .month, for: today)?.count ?? 28
-        let clampedDay = min(startDay, daysThisMonth)
-
-        var candidateComps = DateComponents()
-        candidateComps.year = comps.year
-        candidateComps.month = comps.month
-        candidateComps.day = clampedDay
-
-        guard let candidateStart = cal.date(from: candidateComps) else {
-            return cal.startOfDay(for: today)
+    /// DSH 侧 opencode-go 事件消耗估算（DSH 不记录真实费用，按价格规则 × tokens）
+    private func fetchDshOpencodeGoEstimatedCost(startDateMs: Int64) -> Double {
+        guard case .success(let ds) = DshService.shared.loadDetailedData(), ds.isFull else { return 0 }
+        let startDate = Date(timeIntervalSince1970: Double(startDateMs) / 1000)
+        let rules = ds.pricingRules
+        var total = 0.0
+        for event in ds.events {
+            guard event.providerID == "opencode-go", event.time >= startDate else { continue }
+            let prices = ModelPricingStore.price(
+                forModelId: event.modelId,
+                variant: "default",
+                providerID: event.providerID,
+                at: event.time,
+                rules: rules
+            )
+            total += Double(event.inputTokens) / 1_000_000 * prices.inputMiss
+                   + Double(event.cacheReadTokens) / 1_000_000 * prices.cacheHit
+                   + Double(event.outputTokens) / 1_000_000 * prices.output
+                   + Double(event.reasoningTokens) / 1_000_000 * prices.reasoning
         }
-
-        let startOfToday = cal.startOfDay(for: today)
-        if startOfToday >= candidateStart {
-            return candidateStart
-        }
-        return cal.date(byAdding: .month, value: -1, to: candidateStart) ?? candidateStart
+        logger.debug("订阅 DSH 估算: \(String(format: "%.2f", total))")
+        return total
     }
 
     private var hasDeveco = false
