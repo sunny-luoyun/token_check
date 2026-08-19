@@ -117,17 +117,18 @@ final class DiskCleanupService {
         return total
     }
 
-    /// 统计 sessions/ 下的一级会话目录数；目录不存在返回 0。
+    /// 统计 sessions/ 下的会话数（每会话一个 session.jsonl[.zstd] 日志，可能嵌套在工作区目录下）。
+    /// 只按文件名匹配、不解析内容，zstd 不可用也不影响；与 DshEventStore 枚举口径一致。
     private func countSessionDirs(_ sessionsDir: URL) -> Int {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
+        guard let enumerator = FileManager.default.enumerator(
             at: sessionsDir,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         ) else { return 0 }
         var count = 0
-        for url in contents {
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            if name == "session.jsonl.zstd" || name == "session.jsonl" {
                 count += 1
             }
         }
