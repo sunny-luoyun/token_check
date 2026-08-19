@@ -60,6 +60,7 @@ struct WidgetTodayUsage: Codable {
     let subscriptionBudget: Double?
     let subscriptionUsed: Double?
     let subscriptionEnabled: Bool
+    let subscriptionPeriodEnd: Double?
 
     enum CodingKeys: String, CodingKey {
         case totalTokens, inputTokens, outputTokens, cacheReadTokens
@@ -67,7 +68,7 @@ struct WidgetTodayUsage: Codable {
         case sessionCount, messageCount, projectCount
         case additions, deletions, files
         case dailyTokens, hourlyTokens, todayCost
-        case subscriptionRemaining, subscriptionBudget, subscriptionUsed, subscriptionEnabled
+        case subscriptionRemaining, subscriptionBudget, subscriptionUsed, subscriptionPeriodEnd, subscriptionEnabled
     }
 
     init(
@@ -89,6 +90,7 @@ struct WidgetTodayUsage: Codable {
         subscriptionRemaining: Double? = nil,
         subscriptionBudget: Double? = nil,
         subscriptionUsed: Double? = nil,
+        subscriptionPeriodEnd: Double? = nil,
         subscriptionEnabled: Bool = false
     ) {
         self.totalTokens = totalTokens
@@ -109,6 +111,7 @@ struct WidgetTodayUsage: Codable {
         self.subscriptionRemaining = subscriptionRemaining
         self.subscriptionBudget = subscriptionBudget
         self.subscriptionUsed = subscriptionUsed
+        self.subscriptionPeriodEnd = subscriptionPeriodEnd
         self.subscriptionEnabled = subscriptionEnabled
     }
 
@@ -132,6 +135,7 @@ struct WidgetTodayUsage: Codable {
         subscriptionRemaining = try container.decodeIfPresent(Double.self, forKey: .subscriptionRemaining)
         subscriptionBudget = try container.decodeIfPresent(Double.self, forKey: .subscriptionBudget)
         subscriptionUsed = try container.decodeIfPresent(Double.self, forKey: .subscriptionUsed)
+        subscriptionPeriodEnd = try container.decodeIfPresent(Double.self, forKey: .subscriptionPeriodEnd)
         subscriptionEnabled = try container.decodeIfPresent(Bool.self, forKey: .subscriptionEnabled) ?? false
     }
 
@@ -155,6 +159,7 @@ struct WidgetTodayUsage: Codable {
         try container.encodeIfPresent(subscriptionRemaining, forKey: .subscriptionRemaining)
         try container.encodeIfPresent(subscriptionBudget, forKey: .subscriptionBudget)
         try container.encodeIfPresent(subscriptionUsed, forKey: .subscriptionUsed)
+        try container.encodeIfPresent(subscriptionPeriodEnd, forKey: .subscriptionPeriodEnd)
         try container.encode(subscriptionEnabled, forKey: .subscriptionEnabled)
     }
 }
