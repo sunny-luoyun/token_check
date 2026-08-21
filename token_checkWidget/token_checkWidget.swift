@@ -1223,21 +1223,23 @@ struct LargeWidgetEntryView: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(.quaternary)
-                    .frame(width: 48, height: 8)
+                    .frame(width: 40, height: 6)
                 Capsule()
                     .fill(barColor.gradient)
-                    .frame(width: max(4, 48 * ratio), height: 8)
+                    .frame(width: max(3, 40 * ratio), height: 6)
             }
             Text("\(pct)%")
                 .font(.system(size: 10, weight: .bold).monospacedDigit())
                 .foregroundStyle(barColor)
+                .fixedSize()
             if let periodEnd = periodEnd {
                 let remainMs = periodEnd - Date().timeIntervalSince1970 * 1000
                 if remainMs > 0 {
                     let hours = Int(remainMs / 3_600_000)
-                    Text("剩\(hours / 24)天\(hours % 24)h")
+                    Text("剩\(hours / 24)d\(hours % 24)h")
                         .font(.system(size: 9).monospaced())
                         .foregroundStyle(.secondary)
+                        .fixedSize()
                 }
             }
         }

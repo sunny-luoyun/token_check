@@ -32,6 +32,7 @@ class TokenViewModel: ObservableObject {
     private var lastRefreshSessionCount: Int = 0
     private var forceFullRefreshCount: Int = 0
     private var lastRefreshInterval: TimeInterval = 0
+    private var lastApiKey: String = ""
     private let widgetDataQueue = DispatchQueue(label: "com.luoyun.tokencheck.widget-data", qos: .utility)
 
     init() {
@@ -79,6 +80,7 @@ class TokenViewModel: ObservableObject {
 
     private func setupSettingsObserver() {
         lastRefreshInterval = Self.readRefreshInterval()
+        lastApiKey = UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.string(forKey: "opencodeApiKey") ?? ""
         settingsObserver = NotificationCenter.default
             .addObserver(forName: UserDefaults.didChangeNotification,
                          object: nil, queue: .main) { [weak self] _ in
@@ -87,6 +89,13 @@ class TokenViewModel: ObservableObject {
                 if newInterval != self.lastRefreshInterval {
                     self.lastRefreshInterval = newInterval
                     self.setupPeriodicRefresh()
+                    self.refresh(showLoading: false)
+                }
+                // API Key 变化时也触发刷新
+                let currentKey = UserDefaults(suiteName: "group.com.luoyun.tokencheck")?.string(forKey: "opencodeApiKey") ?? ""
+                if currentKey != self.lastApiKey {
+                    self.lastApiKey = currentKey
+                    self.logger.notice("OpenCode API Key 变化，刷新订阅数据")
                     self.refresh(showLoading: false)
                 }
             }

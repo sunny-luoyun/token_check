@@ -22,11 +22,15 @@ struct SettingsView: View {
     @AppStorage("subscriptionPeriodStart", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionPeriodStart = 0.0
     @AppStorage("subscriptionPeriodDurationDays", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionPeriodDurationDays = 30
     @AppStorage("subscriptionBudget", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionBudget = 60.0
+    @AppStorage("opencodeApiKey", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var opencodeApiKey = ""
+    @AppStorage("subscriptionTier", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionTier = 60.0
 
     @State private var periodRemainingDays = 10
     @State private var periodRemainingHours = 0
     @State private var subscriptionPeriodError: String?
     @State private var now = Date()
+    @State private var officialUsage: OpenCodeOfficialUsage?
+    @State private var isLoadingOfficialUsage = false
 
     @Environment(\.appTheme) var theme
 
@@ -296,7 +300,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("开启订阅计费统计")
                             .font(.subheadline.weight(.medium))
-                        Text("统计 opencode-go 提供商在订阅周期内的消耗（含 DSH 估算）")
+                        Text("通过 OpenCode 官方 API 获取准确用量（推荐）")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -306,102 +310,169 @@ struct SettingsView: View {
                 }
                 if subscriptionEnabled {
                     VStack(alignment: .leading, spacing: 10) {
+                        // API Key 输入
                         HStack(spacing: 12) {
-                            Image(systemName: "calendar.day.fill")
+                            Image(systemName: "key.fill")
                                 .font(.title2)
                                 .foregroundStyle(.purple)
                                 .frame(width: 28)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("周期总长")
+                                Text("OpenCode API Key")
                                     .font(.subheadline.weight(.medium))
-                                Text("订阅周期总天数（如 30 天滚动）")
+                                Text("从 OpenCode 控制台获取（sk-opencode-...）")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            TextField("", value: $subscriptionPeriodDurationDays, format: .number)
+                            SecureField("sk-opencode-...", text: $opencodeApiKey)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.caption.monospaced())
-                                .frame(width: 60)
-                            Text("天")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .frame(width: 280)
                         }
-                        HStack(spacing: 12) {
-                            Image(systemName: "hourglass")
-                                .font(.title2)
-                                .foregroundStyle(.purple)
-                                .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("当前剩余")
-                                    .font(.subheadline.weight(.medium))
-                                Text("对照官方控制台输入剩余时长，保存后校准周期起点")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            TextField("", value: $periodRemainingDays, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.caption.monospaced())
-                                .frame(width: 50)
-                            Text("天")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            TextField("", value: $periodRemainingHours, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.caption.monospaced())
-                                .frame(width: 40)
-                            Text("时")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Button("保存校准") {
-                                saveSubscriptionPeriod()
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                        if let err = subscriptionPeriodError {
-                            Text(err)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .padding(.leading, 40)
-                        }
-                        if subscriptionPeriodStart > 0 {
-                            HStack(spacing: 12) {
-                                Image(systemName: "clock.arrow.circlepath")
-                                    .font(.title2)
-                                    .foregroundStyle(.purple)
-                                    .frame(width: 28)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("周期起点 \(formattedPeriodStart)")
-                                        .font(.caption.monospaced())
-                                    Text("周期剩余 \(formattedRemaining)")
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                            }
-                        }
+
+                        // 订阅档位选择
                         HStack(spacing: 12) {
                             Image(systemName: "dollarsign.circle.fill")
                                 .font(.title2)
                                 .foregroundStyle(.purple)
                                 .frame(width: 28)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("月度额度")
+                                Text("订阅档位")
                                     .font(.subheadline.weight(.medium))
-                                Text("每月总预算额度")
+                                Text("用于将百分比转换为金额显示")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            HStack(spacing: 4) {
-                                Text("$")
-                                    .foregroundStyle(.secondary)
-                                TextField("", value: $subscriptionBudget, format: .number.precision(.fractionLength(2)))
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.caption.monospaced())
-                                    .frame(width: 80)
+                            Picker("", selection: $subscriptionTier) {
+                                Text("$60/月（标准）").tag(60.0)
+                                Text("$200/月（Pro）").tag(200.0)
                             }
+                            .labelsHidden()
+                            .frame(width: 160)
+                        }
+
+                        // 官方 API 状态
+                        if !opencodeApiKey.isEmpty {
+                            if let usage = officialUsage {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.green)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("官方 API 已连接")
+                                            .font(.subheadline.weight(.medium))
+                                        Text("月度用量 \(usage.monthlyPercent)% · 重置时间 \(formattedResetDate(usage.monthlyResetsAt))")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                            } else if isLoadingOfficialUsage {
+                                HStack(spacing: 12) {
+                                    ProgressView()
+                                        .frame(width: 28)
+                                    Text("正在验证 API Key…")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                }
+                            } else {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.orange)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("API Key 验证失败")
+                                            .font(.subheadline.weight(.medium))
+                                        Text("请检查 Key 是否正确（格式：sk-opencode-...）")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                            }
+                        }
+
+                        // 向后兼容：手动模式
+                        DisclosureGroup("高级：手动模式（不使用官方 API）") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "calendar.day.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.purple)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("周期总长")
+                                            .font(.subheadline.weight(.medium))
+                                    }
+                                    Spacer()
+                                    TextField("", value: $subscriptionPeriodDurationDays, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.caption.monospaced())
+                                        .frame(width: 60)
+                                    Text("天")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                HStack(spacing: 12) {
+                                    Image(systemName: "hourglass")
+                                        .font(.title2)
+                                        .foregroundStyle(.purple)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("当前剩余")
+                                            .font(.subheadline.weight(.medium))
+                                    }
+                                    Spacer()
+                                    TextField("", value: $periodRemainingDays, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.caption.monospaced())
+                                        .frame(width: 50)
+                                    Text("天")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    TextField("", value: $periodRemainingHours, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.caption.monospaced())
+                                        .frame(width: 40)
+                                    Text("时")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Button("保存校准") {
+                                        saveSubscriptionPeriod()
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                                if let err = subscriptionPeriodError {
+                                    Text(err)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                        .padding(.leading, 40)
+                                }
+                                HStack(spacing: 12) {
+                                    Image(systemName: "dollarsign.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.purple)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("月度额度")
+                                            .font(.subheadline.weight(.medium))
+                                    }
+                                    Spacer()
+                                    HStack(spacing: 4) {
+                                        Text("$")
+                                            .foregroundStyle(.secondary)
+                                        TextField("", value: $subscriptionBudget, format: .number.precision(.fractionLength(2)))
+                                            .textFieldStyle(.roundedBorder)
+                                            .font(.caption.monospaced())
+                                            .frame(width: 80)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
                         }
                     }
                     .padding(.vertical, 2)
@@ -471,6 +542,10 @@ struct SettingsView: View {
         .onAppear {
             loadPricingRules()
             loadDiskInfo()
+            validateOpenCodeApiKey()
+        }
+        .onChange(of: opencodeApiKey) { _, newValue in
+            validateOpenCodeApiKey()
         }
         .onChange(of: pricingRules) {
             savePricingRules()
@@ -491,6 +566,28 @@ struct SettingsView: View {
                 .font(.headline)
                 .foregroundStyle(.primary)
         }
+    }
+
+    private func validateOpenCodeApiKey() {
+        guard !opencodeApiKey.isEmpty else {
+            officialUsage = nil
+            return
+        }
+        isLoadingOfficialUsage = true
+        Task {
+            let usage = await OpenCodeUsageService.shared.fetchUsage(apiKey: opencodeApiKey)
+            await MainActor.run {
+                self.officialUsage = usage
+                self.isLoadingOfficialUsage = false
+            }
+        }
+    }
+
+    private func formattedResetDate(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        let df = DateFormatter()
+        df.dateFormat = "MM-dd HH:mm"
+        return df.string(from: date)
     }
 
     private func saveSubscriptionPeriod() {
@@ -515,22 +612,6 @@ struct SettingsView: View {
         let startMs = floor(start.timeIntervalSince1970 / 3600) * 3600 * 1000
         subscriptionPeriodStart = startMs
         now = nowDate
-    }
-
-    private var formattedPeriodStart: String {
-        guard subscriptionPeriodStart > 0 else { return "—" }
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd HH:mm"
-        return df.string(from: Date(timeIntervalSince1970: subscriptionPeriodStart / 1000))
-    }
-
-    private var formattedRemaining: String {
-        guard subscriptionPeriodStart > 0 else { return "—" }
-        let endMs = subscriptionPeriodStart + Double(subscriptionPeriodDurationDays) * 86_400_000
-        let remainMs = endMs - now.timeIntervalSince1970 * 1000
-        guard remainMs > 0 else { return "已到期" }
-        let hours = Int(remainMs / 3_600_000)
-        return "\(hours / 24) 天 \(hours % 24) 小时"
     }
 
     // MARK: - Pricing Rule Section

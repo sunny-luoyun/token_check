@@ -590,23 +590,61 @@ final class WidgetDataService {
         guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck"),
               defaults.bool(forKey: "subscriptionEnabled") else { return nil }
 
+        // 优先使用官方 API
+        let apiKey = defaults.string(forKey: "opencodeApiKey") ?? ""
+        if !apiKey.isEmpty {
+            return computeOfficialUsage(defaults: defaults, apiKey: apiKey)
+        }
+
+        // Fallback: 旧的本地计算方式
+        return computeLocalUsage(defaults: defaults)
+    }
+
+    /// 官方 API 用量（同步调用，后台线程执行）
+    private func computeOfficialUsage(defaults: UserDefaults, apiKey: String) -> (used: Double, budget: Double, remaining: Double, periodEnd: Double)? {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: (used: Double, budget: Double, remaining: Double, periodEnd: Double)?
+
+        Task {
+            let usage = await OpenCodeUsageService.shared.fetchUsage(apiKey: apiKey)
+            if let usage {
+                let tier = defaults.double(forKey: "subscriptionTier")
+                let budget = tier > 0 ? tier : 60.0
+                let used = budget * Double(usage.monthlyPercent) / 100.0
+                let remaining = max(budget - used, 0)
+                let periodEnd = usage.monthlyResetsAt.map { $0.timeIntervalSince1970 * 1000 } ?? 0
+                result = (used, budget, remaining, periodEnd)
+                logger.debug("官方 API 用量: \(usage.monthlyPercent)% = $\(String(format: "%.2f", used)) / $\(String(format: "%.0f", budget))")
+            } else {
+                logger.warning("官方 API 失败，fallback 到本地计算")
+                result = computeLocalUsage(defaults: defaults)
+            }
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 15)
+
+        return result
+    }
+
+    /// 旧的本地计算方式（向后兼容）
+    private func computeLocalUsage(defaults: UserDefaults) -> (used: Double, budget: Double, remaining: Double, periodEnd: Double)? {
         let startMs = defaults.double(forKey: "subscriptionPeriodStart")
         let durationDays = defaults.integer(forKey: "subscriptionPeriodDurationDays")
         let budget = defaults.double(forKey: "subscriptionBudget")
         guard startMs > 0, durationDays >= 1, budget > 0 else { return nil }
 
-        let startDate = Date(timeIntervalSince1970: startMs / 1000)
         let periodEnd = startMs + Double(durationDays) * 86_400_000
-
-        logger.debug("订阅: periodStart=\(ISO8601DateFormatter().string(from: startDate)) durationDays=\(durationDays) budget=\(budget)")
 
         let used = fetchOpenCodeGoCost(startDateMs: Int64(startMs))
                  + fetchDshOpencodeGoEstimatedCost(startDateMs: Int64(startMs))
-        logger.debug("订阅已用: \(String(format: "%.2f", used)) / \(String(format: "%.0f", budget)) = \(String(format: "%.0f", used / budget * 100))% (含 DSH 估算)")
+        logger.debug("本地估算用量: $\(String(format: "%.2f", used)) / $\(String(format: "%.0f", budget))")
 
         return (used, budget, max(budget - used, 0), periodEnd)
     }
 
+    // MARK: - 旧的本地计算方式（仅在无 API Key 时 fallback 使用）
+
+    /// opencode 费用分解（含回滚调整；失败抛错）
     private func fetchOpenCodeGoCost(startDateMs: Int64) -> Double {
         guard let db = openDB() else { return 0 }
         defer { sqlite3_close(db) }
