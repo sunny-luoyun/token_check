@@ -121,7 +121,27 @@ class TokenViewModel: ObservableObject {
         }
     }
 
+    /// 检查当前时间是否接近对齐刷新时间（±threshold 秒内）
+    private func isNearAlignedRefreshTime(threshold: TimeInterval = 30) -> Bool {
+        let interval = Self.readRefreshInterval()
+        let now = Date()
+        let seconds = now.timeIntervalSince1970
+        let nextAligned = (floor(seconds / interval) + 1) * interval
+        let prevAligned = floor(seconds / interval) * interval
+        // 接近下一个对齐时间，或刚过上一个对齐时间
+        return (nextAligned - seconds) <= threshold || (seconds - prevAligned) <= threshold
+    }
+
     private func reloadWidgetTimelines() {
+        // 对齐时间守卫：只在接近对齐刷新点时才真正通知 WidgetKit reload，
+        // 其他时间 app 端只更新数据文件，小组件自带的 .after 时间线策略
+        // 会在对齐时间自动触发 getTimeline 并读取最新数据。
+        // 这避免了 app 旁路触发导致小组件在非预期时间刷新（如设置5分钟间隔，
+        // 却在第2、7分钟也出现更新）。
+        guard isNearAlignedRefreshTime() else {
+            logger.notice("非对齐时间，跳过 WidgetKit reload（数据文件已更新，等对齐时间自动刷新）")
+            return
+        }
         let kinds = liveWidgetKinds()
         let skipped = Self.allWidgetKinds.filter { !kinds.contains($0) }
         if !skipped.isEmpty {
