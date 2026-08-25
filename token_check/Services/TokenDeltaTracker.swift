@@ -107,11 +107,13 @@ final class TokenDeltaTracker {
             var pCost = projectCostConsumption
             var covered = coveredDates
 
-            // 只处理新增的 event
+            // 必须下推 type 过滤：event 表 44 万行中仅 3.2 万是 token 统计所需的
+            // session.updated.1，其余 41 万行（约 3.1GB）是无用的大 volume data，
+            // 若在 Swift 层才过滤，SQLite 仍会全量物化 data 列导致冷启动卡 15-20 秒。
             let sql = """
                 SELECT rowid, aggregate_id, type, data
                 FROM event
-                WHERE rowid > ?
+                WHERE rowid > ? AND type = 'session.updated.1'
                 ORDER BY rowid
             """
 
@@ -388,7 +390,7 @@ final class TokenDeltaTracker {
         let eventSQL = """
             SELECT rowid, aggregate_id, type, data
             FROM event
-            WHERE rowid > ?
+            WHERE rowid > ? AND type = 'session.updated.1'
             ORDER BY rowid
         """
 
