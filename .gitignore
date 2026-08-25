@@ -22,3 +22,6 @@ Pods/
 go-page-monitor/config.json
 go-page-monitor/state.json
 go-page-monitor/logs/
+
+# opencode 内部状态/计划目录
+.omo/
