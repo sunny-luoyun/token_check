@@ -144,6 +144,7 @@ struct SessionListView: View {
                         hoveredSessionID = hovering ? session.id : nil
                     }
             }
+            .width(200)
 
             TableColumn("模型") { session in
                 Text(session.modelDisplayName)
@@ -155,9 +156,21 @@ struct SessionListView: View {
             }
             .width(160)
 
-            TableColumn("Input") { session in
+            TableColumn("未命中") { session in
                 let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
                 let adjusted = session.tokensInput + (rollback?.asTokenData.tokensInput ?? 0)
+                Text(formatNumber(adjusted))
+                    .font(.caption.monospaced())
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .onHover { hovering in
+                        hoveredSessionID = hovering ? session.id : nil
+                    }
+            }
+            .width(90)
+
+            TableColumn("命中") { session in
+                let rollback = viewModel.showRollback ? viewModel.sessionRollbacks[session.id] : nil
+                let adjusted = session.tokensCacheRead + (rollback?.asTokenData.tokensCacheRead ?? 0)
                 Text(formatNumber(adjusted))
                     .font(.caption.monospaced())
                     .frame(maxWidth: .infinity, alignment: .trailing)
