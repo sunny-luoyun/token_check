@@ -210,11 +210,6 @@ private func nextAlignedRefreshDate() -> Date {
 
 // MARK: - 小组件统计项偏好（从 App Group UserDefaults 读取）
 
-private func widgetStat(forIndex index: Int, defaultVal: String) -> String {
-    guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else { return defaultVal }
-    return defaults.string(forKey: "widget_stat_\(index)") ?? defaultVal
-}
-
 private func widgetDisplayMode() -> String {
     guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else { return "tokens" }
     return defaults.string(forKey: "widget_display_mode") ?? "tokens"
@@ -236,11 +231,6 @@ private func yearlyAvgMode() -> String {
 }
 
 private let kDefaultStats: [String] = ["inputTokens", "cacheReadTokens", "outputTokens", "sessionCount"]
-
-struct TokenWidgetEntry: TimelineEntry {
-    let date: Date
-    let usage: WidgetTodayUsage?
-}
 
 private func readUsageFromAppGroup() -> WidgetTodayUsage? {
     if let combined = readWidgetData(), let usage = combined.todayUsage {
@@ -265,30 +255,6 @@ private func readUsageFromAppGroup() -> WidgetTodayUsage? {
     }
     WidgetDataCache.usage = usage
     return usage
-}
-
-struct TokenTimelineProvider: TimelineProvider {
-    func placeholder(in context: Context) -> TokenWidgetEntry {
-        TokenWidgetEntry(date: Date(), usage: nil)
-    }
-
-    func getSnapshot(in context: Context, completion: @escaping (TokenWidgetEntry) -> Void) {
-        let usage = readUsageFromAppGroup()
-        completion(TokenWidgetEntry(date: Date(), usage: usage))
-    }
-
-    func getTimeline(in context: Context, completion: @escaping (Timeline<TokenWidgetEntry>) -> Void) {
-        let t0 = CFAbsoluteTimeGetCurrent()
-        let df = DateFormatter()
-        df.dateFormat = "HH:mm:ss.SSS"
-        widgetLogger.notice("TokenCheckWidget timeline START at \(df.string(from: Date()), privacy: .public)")
-        let usage = readUsageFromAppGroup()
-        let entry = TokenWidgetEntry(date: Date(), usage: usage)
-        let nextUpdate = nextAlignedRefreshDate()
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        widgetLogger.notice("TokenCheckWidget getTimeline: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t0) * 1000), privacy: .public)ms")
-        completion(timeline)
-    }
 }
 
 private func formatTokens(_ n: Int) -> String {
@@ -385,127 +351,6 @@ private func connectionIndicator() -> some View {
     Circle()
         .fill(serverConnected() ? Color.green : Color.red)
         .frame(width: 8, height: 8)
-}
-
-struct TokenCheckWidgetEntryView: View {
-    var entry: TokenTimelineProvider.Entry
-
-    private var stat1: String { widgetStat(forIndex: 1, defaultVal: kDefaultStats[0]) }
-    private var stat2: String { widgetStat(forIndex: 2, defaultVal: kDefaultStats[1]) }
-    private var stat3: String { widgetStat(forIndex: 3, defaultVal: kDefaultStats[2]) }
-    private var stat4: String { widgetStat(forIndex: 4, defaultVal: kDefaultStats[3]) }
-
-    private var total7Day: Int {
-        entry.usage?.dailyTokens.map(\.totalTokens).reduce(0, +) ?? 0
-    }
-
-    var body: some View {
-        if let usage = entry.usage {
-            VStack(spacing: 0) {
-                HStack {
-                    Image(systemName: "chart.bar.fill")
-                        .foregroundStyle(.blue)
-                        .font(.headline)
-                    Text(formatTokens(usage.totalTokens))
-                        .font(.title2.monospaced().bold())
-                        .foregroundStyle(.blue)
-                    Text(formatCost(usage.todayCost))
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 4)
-                    Spacer()
-                    connectionIndicator()
-                }
-                .padding(.horizontal, 14)
-                .padding(.top, 6)
-
-                HStack(spacing: 0) {
-                    statItem(statLabel(for: stat1), statValue(for: stat1, usage: usage), statColor(for: stat1))
-                    Spacer()
-                    statItem(statLabel(for: stat2), statValue(for: stat2, usage: usage), statColor(for: stat2))
-                    Spacer()
-                    statItem(statLabel(for: stat3), statValue(for: stat3, usage: usage), statColor(for: stat3))
-                    Spacer()
-                    statItem(statLabel(for: stat4), statValue(for: stat4, usage: usage), statColor(for: stat4))
-                }
-                .font(.caption2)
-                .padding(.horizontal, 14)
-
-                if !usage.dailyTokens.isEmpty {
-                    Divider()
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 3)
-
-                    HStack(spacing: 0) {
-                        Text("近7天")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("共 \(formatTokens(total7Day))")
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 14)
-
-                    let maxVal = max(usage.dailyTokens.map(\.totalTokens).max() ?? 1, 1)
-                    GeometryReader { geo in
-                        HStack(spacing: 2) {
-                            ForEach(Array(usage.dailyTokens.enumerated()), id: \.element.id) { _, item in
-                                let ratio = CGFloat(item.totalTokens) / CGFloat(maxVal)
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(.blue.gradient)
-                                    .frame(height: max(4, ratio * geo.size.height))
-                                    .frame(maxHeight: .infinity, alignment: .bottom)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 6)
-                }
-                Text("更新于 \(entry.date, style: .time)")
-                    .font(.system(size: 7))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.trailing, 12)
-                    .padding(.bottom, 2)
-            }
-            .containerBackground(.regularMaterial, for: .widget)
-        } else {
-            VStack(spacing: 6) {
-                Image(systemName: "chart.bar.fill")
-                    .font(.title)
-                    .foregroundStyle(.blue)
-                Text("等待数据...")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .containerBackground(.regularMaterial, for: .widget)
-        }
-    }
-
-    private func statItem(_ label: String, _ value: String, _ color: Color) -> some View {
-        VStack(spacing: 1) {
-            Text(value)
-                .font(.subheadline.monospaced().bold())
-                .foregroundStyle(color)
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-struct TokenCheckWidget: Widget {
-    let kind: String = "TokenCheckWidgetV2"
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: TokenTimelineProvider()) { entry in
-            TokenCheckWidgetEntryView(entry: entry)
-        }
-        .configurationDisplayName("Token 用量")
-        .description("显示今日 OpenCode Token 用量和近7天趋势。")
-        .supportedFamilies([.systemMedium])
-    }
 }
 
 // MARK: - 小尺寸热力图小组件

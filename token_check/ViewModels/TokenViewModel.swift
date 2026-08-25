@@ -160,7 +160,6 @@ class TokenViewModel: ObservableObject {
     /// 所有已注册的 widget kind（与 token_checkWidget 中各 Widget.kind 一一对应）
     private static let allWidgetKinds = [
         "TokenCheckLargeWidgetV3",
-        "TokenCheckWidgetV2",
         "TokenCheckSmallWidgetV2",
         "ClashTrafficWidget"
     ]

@@ -115,3 +115,22 @@
     - | MiniMax M3                   | $0.30   | $1.20   | $0.06           | -               | $60       |
     变更文件: go.mdx, go.mdx, index.tsx
 
+2026-08-24 19:58:29 | 6bb77221 | docs(go): add LongCat-2.0 (#44636)
+    - { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", req: 1050, d: "150ms" },
+    变更文件: go.mdx, go.mdx, index.tsx, en.ts, zh.ts
+
+2026-08-25 20:31:05 | afd6f3b0 | zen: display quota usage breakdown
+    - "workspace.lite.subscription.rollingUsage": "الاستخدام المتجدد",
+    + "workspace.lite.subscription.rollingUsage": "الاستخدام خلال 5 ساعات",
+    + "workspace.lite.subscription.rollingQuota": "الحصة خلال 5 ساعات",
+    + "workspace.lite.subscription.weeklyQuota": "الحصة الأسبوعية",
+    + "workspace.lite.subscription.monthlyQuota": "الحصة الشهرية",
+    + "workspace.lite.subscription.showDetails": "إظهار التفاصيل",
+    + "workspace.lite.subscription.hideDetails": "إخفاء التفاصيل",
+    + "workspace.lite.subscription.model": "النموذج",
+    + "workspace.lite.subscription.contribution": "%",
+    + "workspace.lite.subscription.total": "الإجمالي",
+    - "workspace.lite.subscription.rollingUsage": "Uso Contínuo",
+    + "workspace.lite.subscription.rollingUsage": "Uso de 5 horas",
+    变更文件: en.ts, zh.ts
+
