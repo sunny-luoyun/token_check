@@ -25,3 +25,6 @@ go-page-monitor/logs/
 
 # opencode 内部状态/计划目录
 .omo/
+
+# Git worktrees
+.worktrees/
