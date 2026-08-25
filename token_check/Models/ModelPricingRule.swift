@@ -274,6 +274,12 @@ enum ModelPricingStore {
         SharedStorage.store.read(storageKey, type: [ModelPricingRule].self) ?? []
     }
 
+    /// 读取并区分「未配置」/「内容损坏」/「成功」。
+    /// 设置页据此决定是否允许用默认值撑起后回写：损坏时禁止回写，避免覆盖自定义价格。
+    static func loadResult() -> StorageReadResult<[ModelPricingRule]> {
+        SharedStorage.store.readResult(storageKey, type: [ModelPricingRule].self)
+    }
+
     static func save(_ rules: [ModelPricingRule]) {
         SharedStorage.store.write(storageKey, value: rules)
     }

@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var pricingRules: [ModelPricingRule] = []
     @State private var pricingError: String?
     @State private var isLoadingPricing = false
+    @State private var suppressNextPricingSave = false
 
     @State private var diskUsage: DiskUsage?
     @State private var isLoadingDisk = false
@@ -547,7 +548,14 @@ struct SettingsView: View {
         .onChange(of: opencodeApiKey) { _, newValue in
             validateOpenCodeApiKey()
         }
-        .onChange(of: pricingRules) {
+        .onChange(of: pricingRules) { _, _ in
+            // 加载流程通过赋值 pricingRules 也会触发本回调；此时禁止回写，
+            // 否则「读失败→用默认撑满→立刻写回」会把用户自定义价格覆盖成默认并固化。
+            // 注意：这里只判断、不主动复位——复位交给 loadPricingRules 内的延迟兜底，
+            // 避免「加载后值未变化 → onChange 不触发 → 标志残留吞掉用户首次编辑」。
+            if suppressNextPricingSave {
+                return
+            }
             savePricingRules()
         }
         .formStyle(.grouped)
@@ -968,7 +976,20 @@ struct SettingsView: View {
         isLoadingPricing = true
         pricingError = nil
 
-        let savedRules = ModelPricingStore.load()
+        // 区分「未配置」「文件损坏」「读取成功」：损坏时禁止用默认值撑满后回写，保护用户自定义价格
+        let savedRules: [ModelPricingRule]
+        let loadFailed: Bool
+        switch ModelPricingStore.loadResult() {
+        case .success(let rules):
+            savedRules = rules
+            loadFailed = false
+        case .notFound:
+            savedRules = []
+            loadFailed = false
+        case .corrupted:
+            savedRules = []
+            loadFailed = true
+        }
         let savedLookup = Dictionary(uniqueKeysWithValues: savedRules.map { ($0.pricingKey, $0) })
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -982,15 +1003,27 @@ struct SettingsView: View {
                 let merged = Self.mergePricingRules(models: models + Self.dshModels(), savedRules: savedRules)
 
                 DispatchQueue.main.async {
+                    self.suppressNextPricingSave = true
                     self.pricingRules = merged
+                    if loadFailed {
+                        self.pricingError = "价格配置文件读取失败，为避免覆盖已使用默认值。请手动恢复默认价格后重新设置。"
+                    }
                     self.isLoadingPricing = false
+                    // 兜底复位：本次加载若未改变 pricingRules（onChange 不触发），延迟复位避免残留吞掉后续首次编辑
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.suppressNextPricingSave = false
+                    }
                 }
             } catch {
                 let merged = Self.mergePricingRules(models: Self.dshModels(), savedRules: savedRules)
                 DispatchQueue.main.async {
+                    self.suppressNextPricingSave = true
                     self.pricingRules = merged
                     self.pricingError = merged.isEmpty ? error.localizedDescription : nil
                     self.isLoadingPricing = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.suppressNextPricingSave = false
+                    }
                 }
             }
         }
