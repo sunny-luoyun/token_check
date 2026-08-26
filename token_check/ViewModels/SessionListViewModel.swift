@@ -8,7 +8,7 @@ class SessionListViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var sessionRollbacks: [String: RollbackRecord] = [:]
     @Published var periods: [TimePeriod] = []
-    @Published var filterMode: TimeFilterMode = .range
+    @Published var filterMode: TimeFilterMode = .day
     @Published var startDate: Date = {
         let cal = Calendar.current
         let now = Date()
@@ -32,6 +32,8 @@ class SessionListViewModel: ObservableObject {
         didSet { defaults.set(dataSource.rawValue, forKey: Self.dataSourceKey) }
     }
     @Published var dshLevel: DshDetailLevel = .full
+
+    private var hasInitialized = false
 
     var hasSessionRollback: Bool {
         sessionRollbacks.values.contains { $0.total > 0 }
@@ -79,6 +81,86 @@ class SessionListViewModel: ObservableObject {
 
     func applyFilter() {
         load()
+    }
+
+    private func selectInitialDayIfNeeded() {
+        guard !hasInitialized, filterMode == .day else { return }
+        hasInitialized = true
+        resolveInitialDay()
+    }
+
+    /// 首次加载时确定目标日：今天有数据则今天，否则往过去逐月回溯找最近有数据的日。
+    /// 仅由 load 的后台任务调用一次。
+    private func resolveInitialDay() {
+        let cal = Calendar.current
+        let now = Date()
+        let todayYear = String(cal.component(.year, from: now))
+        let todayMonth = String(format: "%02d", cal.component(.month, from: now))
+        let todayDay = String(format: "%02d", cal.component(.day, from: now))
+
+        for period in availablePeriods() {
+            let year = period.year
+            guard let month = period.month, !year.isEmpty else { continue }
+            if year > todayYear || (year == todayYear && month > todayMonth) { continue }
+
+            let days = availableDays(year: year, month: month)
+            guard !days.isEmpty else { continue }
+
+            let target: String
+            if year == todayYear && month == todayMonth {
+                guard let latest = days.filter({ $0 <= todayDay }).max() else { continue }
+                target = latest
+            } else {
+                guard let latest = days.max() else { continue }
+                target = latest
+            }
+            selectedYear = year
+            selectedMonth = month
+            selectedDay = target
+            return
+        }
+    }
+
+    private func availablePeriods() -> [TimePeriod] {
+        switch dataSource {
+        case .opencode:
+            guard let service = DatabaseService.shared,
+                  let periods = try? service.fetchAvailablePeriods() else { return [] }
+            return periods
+        case .dsh:
+            guard case .success(let dataSource) = DshService.shared.loadDetailedData() else { return [] }
+            return dataSource.periods()
+        case .all:
+            var combined: [TimePeriod] = []
+            if let service = DatabaseService.shared, let p = try? service.fetchAvailablePeriods() {
+                combined.append(contentsOf: p)
+            }
+            if case .success(let dsh) = DshService.shared.loadDetailedData() {
+                combined.append(contentsOf: dsh.periods())
+            }
+            return Self.mergePeriods(combined, [])
+        }
+    }
+
+    private func availableDays(year: String, month: String) -> [String] {
+        switch dataSource {
+        case .opencode:
+            guard let service = DatabaseService.shared,
+                  let days = try? service.fetchAvailableDays(year: year, month: month) else { return [] }
+            return days
+        case .dsh:
+            guard case .success(let dataSource) = DshService.shared.loadDetailedData() else { return [] }
+            return dataSource.days(year: year, month: month)
+        case .all:
+            var combined: [String] = []
+            if let service = DatabaseService.shared, let d = try? service.fetchAvailableDays(year: year, month: month) {
+                combined.append(contentsOf: d)
+            }
+            if case .success(let dsh) = DshService.shared.loadDetailedData() {
+                combined.append(contentsOf: dsh.days(year: year, month: month))
+            }
+            return Self.mergeDays(combined, [])
+        }
     }
 
     // MARK: - 数据获取（opencode / DSH）
@@ -143,6 +225,7 @@ class SessionListViewModel: ObservableObject {
     private func loadOpencode() {
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
+            self.selectInitialDayIfNeeded()
             do {
                 let data = try self.fetchOpencodeData()
                 DispatchQueue.main.async {
@@ -166,6 +249,7 @@ class SessionListViewModel: ObservableObject {
     private func loadDsh() {
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
+            self.selectInitialDayIfNeeded()
 
             switch DshService.shared.loadDetailedData() {
             case .success(let dataSource):
@@ -201,6 +285,7 @@ class SessionListViewModel: ObservableObject {
     private func loadAll() {
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
+            self.selectInitialDayIfNeeded()
 
             var ocError: String?
             var ocData: OpencodeSessionData?
