@@ -181,7 +181,7 @@ struct DshDefaultModel {
 // MARK: - L2 事件级数据
 
 /// 一次 LLM 调用的记账（来自 JSONL 中 assistant/message 事件的 data.usage + message.source）
-struct DshUsageEvent {
+struct DshUsageEvent: Codable {
     let sessionID: String
     let seq: Int
     let time: Date
@@ -199,7 +199,7 @@ struct DshUsageEvent {
 }
 
 /// DSH 会话日志头（JSONL 首行）
-struct DshLogHeader {
+struct DshLogHeader: Codable {
     let id: String
     let createdAt: Date
     let cwd: String

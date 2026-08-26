@@ -17,9 +17,19 @@ final class DshEventStore {
     private var cache: [String: Entry] = [:]
     private var zstdPath: String?
 
-    struct FileStamp: Equatable {
+    struct FileStamp: Equatable, Codable {
         let size: UInt64
         let mtime: TimeInterval
+    }
+
+    /// 磁盘缓存条目：stamp 未变化的会话直接反序列化复用，避免每次冷启动重新 spawn zstd
+    /// （134 个文件逐个 fork/exec + Pipe 实测 14 秒/次，是 loadDetailedData 5-6s 的真凶）
+    private struct CachedEntry: Codable {
+        let stamp: FileStamp
+        let header: DshLogHeader?
+        let events: [DshUsageEvent]
+        let userMessageCount: Int
+        let assistantMessageCount: Int
     }
 
     private struct Entry {
@@ -45,6 +55,7 @@ final class DshEventStore {
         ) else { return [:] }
 
         var updated: [String: Entry] = [:]
+        var touchedFiles = 0
 
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
@@ -63,6 +74,20 @@ final class DshEventStore {
                 continue
             }
 
+            if let diskCached = loadDiskEntry(dirName: dirName), diskCached.stamp == stamp {
+                let entry = Entry(
+                    dirName: dirName,
+                    stamp: stamp,
+                    header: diskCached.header,
+                    events: diskCached.events,
+                    userMessageCount: diskCached.userMessageCount,
+                    assistantMessageCount: diskCached.assistantMessageCount
+                )
+                updated[dirName] = entry
+                continue
+            }
+
+            touchedFiles += 1
             if let parsed = parseLog(url: url, dirName: dirName, stamp: stamp) {
                 updated[dirName] = parsed
             }
@@ -71,6 +96,11 @@ final class DshEventStore {
         lock.lock()
         cache = updated
         lock.unlock()
+
+        // 有文件被重新解析时持久化磁盘缓存（正常无变化时零开销）
+        if touchedFiles > 0 {
+            saveDiskEntries(updated)
+        }
 
         // 返回时用 header.id（缺失时用目录名去前缀兜底）
         var result: [String: (header: DshLogHeader?, events: [DshUsageEvent], userMessages: Int, assistantMessages: Int)] = [:]
@@ -97,8 +127,19 @@ final class DshEventStore {
         var chunkUsage: [String: [String: Any]] = [:]
 
         for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let obj = try? JSONSerialization.jsonObject(with: Data(String(rawLine).utf8)) as? [String: Any],
-                  let type = obj["type"] as? String else { continue }
+            // 廉价预过滤：先扫描 "type" 字段值，仅目标类型才做完整 JSON 解析
+            // （日志中绝大多数行是消息内容，逐行 JSONSerialization 是 loadAll 冷启动 5.9s 的主要耗时）
+            guard let typeValue = extractType(from: String(rawLine)) else { continue }
+
+            let type: String
+            switch typeValue {
+            case "session", "user/message", "assistant/message", "assistant/chunk":
+                type = typeValue
+            default:
+                continue
+            }
+
+            guard let obj = try? JSONSerialization.jsonObject(with: Data(String(rawLine).utf8)) as? [String: Any] else { continue }
 
             switch type {
             case "session":
@@ -181,6 +222,23 @@ final class DshEventStore {
         (dict[key] as? NSNumber)?.intValue ?? 0
     }
 
+    /// 从单行 JSON 中廉价提取 type 字段值（不做完整 JSON 解析）。
+    /// 期望格式 `"type":"xxx"`（无空白）或 `"type": "xxx"`；找不到返回 nil。
+    private func extractType(from line: String) -> String? {
+        guard let range = line.range(of: "\"type\":") ?? line.range(of: "\"type\": ") else { return nil }
+        var value = line[range.upperBound...]
+        value = value.drop { $0.isWhitespace }
+        guard value.first == "\"" else { return nil }
+        value = value.dropFirst()
+        var type = ""
+        for ch in value {
+            if ch == "\"" { break }
+            type.append(ch)
+            if type.count > 64 { break }
+        }
+        return type.isEmpty ? nil : type
+    }
+
     // MARK: - 解压
 
     /// 用 zstd CLI 解压日志（明文 .jsonl 直接读）。
@@ -245,5 +303,55 @@ final class DshEventStore {
               let size = values.fileSize else { return nil }
         let mtime = values.contentModificationDate?.timeIntervalSince1970 ?? 0
         return FileStamp(size: UInt64(size), mtime: mtime)
+    }
+
+    // MARK: - 磁盘缓存
+
+    private static let diskCacheURL: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return dir.appendingPathComponent("dsh_events_cache.plist")
+    }()
+
+    private func loadDiskEntries() -> [String: CachedEntry] {
+        guard let data = try? Data(contentsOf: Self.diskCacheURL),
+              let entries = try? PropertyListDecoder().decode([String: CachedEntry].self, from: data) else {
+            return [:]
+        }
+        return entries
+    }
+
+    private var diskCache: [String: CachedEntry]?
+
+    private func loadDiskEntry(dirName: String) -> CachedEntry? {
+        lock.lock()
+        defer { lock.unlock() }
+        if diskCache == nil {
+            diskCache = loadDiskEntries()
+        }
+        return diskCache?[dirName]
+    }
+
+    private func saveDiskEntries(_ entries: [String: Entry]) {
+        lock.lock()
+        defer { lock.unlock() }
+        var cache = diskCache ?? loadDiskEntries()
+        for entry in entries.values {
+            cache[entry.dirName] = CachedEntry(
+                stamp: entry.stamp,
+                header: entry.header,
+                events: entry.events,
+                userMessageCount: entry.userMessageCount,
+                assistantMessageCount: entry.assistantMessageCount
+            )
+        }
+        diskCache = cache
+        do {
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            let data = try encoder.encode(cache)
+            try data.write(to: Self.diskCacheURL, options: .atomic)
+        } catch {
+            logger.error("DSH 事件磁盘缓存写入失败: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

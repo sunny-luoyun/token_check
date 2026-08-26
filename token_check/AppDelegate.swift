@@ -179,6 +179,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // 退出前落盘 tracker 检查点，保证下次冷启动跳过全量事件重放
+        TokenDeltaTracker.shared.savePersistedState()
+    }
+
 
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

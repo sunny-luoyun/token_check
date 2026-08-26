@@ -60,9 +60,211 @@ final class TokenDeltaTracker {
         return df
     }()
 
+    /// 持久化检查点：冷启动时从磁盘加载，避免全量重放 event 表
+    /// （event 表 45 万行含 4GB+ 大 data 列，全量扫描实测 5-6 秒/次）
+    private struct TrackerState: Codable {
+        var version: Int
+        var lastProcessedRowId: Int64
+        var devecoLastProcessedRowId: Int64
+        var rollbackRecord: RollbackRecord
+        var sessionRollbacks: [String: RollbackRecord]
+        var modelRollbacks: [String: TokenData]
+        var dailyRollbacks: [String: RollbackRecord]
+        var dailyModelRollbacks: [String: [String: TokenData]]
+        var dailyConsumption: [String: TokenData]
+        var dailyModelConsumption: [String: [String: TokenData]]
+        var hourlyConsumption: [String: TokenData]
+        var sessionCostCache: [String: Double]
+        var sessionSummaryCache: [String: SummaryData]
+        var dailyCostConsumption: [String: Double]
+        var hourlyCostConsumption: [String: Double]
+        var modelCostConsumption: [String: [String: Double]]
+        var dailySummary: [String: SummaryData]
+        var sessionDailyDelta: [String: [String: SessionDelta]]
+        var sessionActiveDays: [String: Set<String>]
+        var dailyActiveSessions: [String: Set<String>]
+        var dailyActiveProjects: [String: Set<String>]
+        var agentConsumption: [String: [String: TokenData]]
+        var projectConsumption: [String: [String: TokenData]]
+        var agentCostConsumption: [String: [String: Double]]
+        var projectCostConsumption: [String: [String: Double]]
+        var coveredDates: Set<String>
+        var sessionTokenCache: [String: TokenData]
+        var sessionModelCache: [String: String]
+        var pendingRbCache: [String: SessionDelta]
+        var pendingRbModelCache: [String: String]
+        var pendingRbTimestampCache: [String: Int64]
+    }
+
+    private static let trackerStateURL: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return dir.appendingPathComponent("tracker_state.plist")
+    }()
+
+    private var didAttemptLoadState = false
+    private var lastPersistAt = Date.distantPast
+    private static let persistInterval: TimeInterval = 30
+
+    /// 从磁盘加载持久化检查点（仅当上次未加载过且进程内未处理任何事件时）
+    private func loadPersistedStateIfNeeded() {
+        guard !didAttemptLoadState else { return }
+        didAttemptLoadState = true
+        guard lastProcessedRowId == 0, devecoLastProcessedRowId == 0 else { return }
+
+        let url = Self.trackerStateURL
+        guard let data = try? Data(contentsOf: url),
+              let state = try? PropertyListDecoder().decode(TrackerState.self, from: data),
+              state.version >= 1 else {
+            return
+        }
+
+        lastProcessedRowId = state.lastProcessedRowId
+        devecoLastProcessedRowId = state.devecoLastProcessedRowId
+        rollbackRecord = state.rollbackRecord
+        sessionRollbacks = state.sessionRollbacks
+        modelRollbacks = state.modelRollbacks
+        dailyRollbacks = state.dailyRollbacks
+        dailyModelRollbacks = state.dailyModelRollbacks
+        dailyConsumption = state.dailyConsumption
+        dailyModelConsumption = state.dailyModelConsumption
+        hourlyConsumption = state.hourlyConsumption
+        sessionCostCache = state.sessionCostCache
+        sessionSummaryCache = state.sessionSummaryCache
+        dailyCostConsumption = state.dailyCostConsumption
+        hourlyCostConsumption = state.hourlyCostConsumption
+        modelCostConsumption = state.modelCostConsumption
+        dailySummary = state.dailySummary
+        sessionDailyDelta = state.sessionDailyDelta
+        sessionActiveDays = state.sessionActiveDays
+        dailyActiveSessions = state.dailyActiveSessions
+        dailyActiveProjects = state.dailyActiveProjects
+        agentConsumption = state.agentConsumption
+        projectConsumption = state.projectConsumption
+        agentCostConsumption = state.agentCostConsumption
+        projectCostConsumption = state.projectCostConsumption
+        coveredDates = state.coveredDates
+        sessionTokenCache = state.sessionTokenCache
+        sessionModelCache = state.sessionModelCache
+        pendingRbCache = state.pendingRbCache
+        pendingRbModelCache = state.pendingRbModelCache
+        pendingRbTimestampCache = state.pendingRbTimestampCache
+
+        logger.notice("从检查点加载 tracker 状态: lastRowid=\(state.lastProcessedRowId, privacy: .public), devecoRowid=\(state.devecoLastProcessedRowId, privacy: .public), 事件数=\(state.dailyConsumption.values.reduce(0) { $0 + $1.total }, privacy: .public)")
+    }
+
+    /// 保存当前累计状态到磁盘（进程退出时无条件调用；此时在终止流程中同步执行）
+    func savePersistedState() {
+        let url = Self.trackerStateURL
+        let state = buildStateSnapshot()
+        do {
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            let data = try encoder.encode(state)
+            try data.write(to: url, options: .atomic)
+            logger.notice("tracker 状态已持久化: \(String(format: "%.1f", Double(data.count) / 1_000_000), privacy: .public)MB")
+        } catch {
+            logger.error("tracker 状态持久化失败: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// 同步构建状态快照（字典均 COW，引用拷贝 O(1)；需在 refresh 同一线程/队列上调用保证一致性）
+    private func buildStateSnapshot() -> TrackerState {
+        TrackerState(
+            version: 1,
+            lastProcessedRowId: lastProcessedRowId,
+            devecoLastProcessedRowId: devecoLastProcessedRowId,
+            rollbackRecord: rollbackRecord,
+            sessionRollbacks: sessionRollbacks,
+            modelRollbacks: modelRollbacks,
+            dailyRollbacks: dailyRollbacks,
+            dailyModelRollbacks: dailyModelRollbacks,
+            dailyConsumption: dailyConsumption,
+            dailyModelConsumption: dailyModelConsumption,
+            hourlyConsumption: hourlyConsumption,
+            sessionCostCache: sessionCostCache,
+            sessionSummaryCache: sessionSummaryCache,
+            dailyCostConsumption: dailyCostConsumption,
+            hourlyCostConsumption: hourlyCostConsumption,
+            modelCostConsumption: modelCostConsumption,
+            dailySummary: dailySummary,
+            sessionDailyDelta: sessionDailyDelta,
+            sessionActiveDays: sessionActiveDays,
+            dailyActiveSessions: dailyActiveSessions,
+            dailyActiveProjects: dailyActiveProjects,
+            agentConsumption: agentConsumption,
+            projectConsumption: projectConsumption,
+            agentCostConsumption: agentCostConsumption,
+            projectCostConsumption: projectCostConsumption,
+            coveredDates: coveredDates,
+            sessionTokenCache: sessionTokenCache,
+            sessionModelCache: sessionModelCache,
+            pendingRbCache: pendingRbCache,
+            pendingRbModelCache: pendingRbModelCache,
+            pendingRbTimestampCache: pendingRbTimestampCache
+        )
+    }
+
+    private let persistQueue = DispatchQueue(label: "com.luoyun.tokencheck.tracker-persist", qos: .utility)
+
+    /// 节流保存（间隔 persistInterval；供 refresh 完成后调用）。
+    /// 在 loadQueue 线程构建一致性快照（O(1) 引用拷贝），编码+落盘放后台队列异步执行。
+    func savePersistedStateIfNeeded() {
+        let now = Date()
+        guard now.timeIntervalSince(lastPersistAt) >= Self.persistInterval else { return }
+        lastPersistAt = now
+        let snapshot = buildStateSnapshot()
+        persistQueue.async {
+            do {
+                let encoder = PropertyListEncoder()
+                encoder.outputFormat = .binary
+                let data = try encoder.encode(snapshot)
+                try data.write(to: Self.trackerStateURL, options: .atomic)
+                self.logger.notice("tracker 状态已持久化: \(String(format: "%.1f", Double(data.count) / 1_000_000), privacy: .public)MB")
+            } catch {
+                self.logger.error("tracker 状态持久化失败: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     private init() {}
 
+    /// 将全部累计状态重置为初值（数据库被重建时回退全量重放）
+    private func resetState() {
+        rollbackRecord = .zero
+        sessionRollbacks = [:]
+        modelRollbacks = [:]
+        dailyRollbacks = [:]
+        dailyModelRollbacks = [:]
+        dailyConsumption = [:]
+        dailyModelConsumption = [:]
+        hourlyConsumption = [:]
+        sessionCostCache = [:]
+        sessionSummaryCache = [:]
+        dailyCostConsumption = [:]
+        hourlyCostConsumption = [:]
+        modelCostConsumption = [:]
+        dailySummary = [:]
+        sessionDailyDelta = [:]
+        sessionActiveDays = [:]
+        dailyActiveSessions = [:]
+        dailyActiveProjects = [:]
+        agentConsumption = [:]
+        projectConsumption = [:]
+        agentCostConsumption = [:]
+        projectCostConsumption = [:]
+        coveredDates = []
+        sessionTokenCache = [:]
+        sessionModelCache = [:]
+        pendingRbCache = [:]
+        pendingRbModelCache = [:]
+        pendingRbTimestampCache = [:]
+        lastProcessedRowId = 0
+        devecoLastProcessedRowId = 0
+    }
+
     func refresh(db: OpaquePointer) {
+        loadPersistedStateIfNeeded()
+
         // 获取当前最大 rowid
         var maxStmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT COALESCE(MAX(rowid), 0) FROM event", -1, &maxStmt, nil) == SQLITE_OK else { return }
@@ -70,6 +272,12 @@ final class TokenDeltaTracker {
         var maxRowId: Int64 = 0
         if sqlite3_step(maxStmt) == SQLITE_ROW {
             maxRowId = sqlite3_column_int64(maxStmt, 0)
+        }
+
+        // 数据库被重建/事件被清理（rowid 回退）：检查点失效，重置后全量重放
+        if maxRowId < lastProcessedRowId {
+            logger.notice("event 表 rowid 回退（maxRowId=\(maxRowId, privacy: .public) < lastProcessedRowId=\(self.lastProcessedRowId, privacy: .public)），丢弃检查点全量重放")
+            resetState()
         }
 
         if maxRowId > lastProcessedRowId {
@@ -329,6 +537,8 @@ final class TokenDeltaTracker {
         // 独立打开 deveco.db 处理事件（不依赖 ATTACH，避免 WAL 快照问题）
         // 无论 opencode 是否有新事件，deveco 事件都必须独立处理
         refreshDevecoEvents()
+
+        savePersistedStateIfNeeded()
     }
 
     private let logger = Logger(subsystem: "com.luoyun.tokencheck", category: "delta-tracker")
@@ -354,7 +564,13 @@ final class TokenDeltaTracker {
         if sqlite3_step(maxStmt) == SQLITE_ROW {
             maxRowId = sqlite3_column_int64(maxStmt, 0)
         }
-        let startRowId = devecoLastProcessedRowId
+        var startRowId = devecoLastProcessedRowId
+        // deveco.db 被重建（rowid 回退）：重置后从 0 全量重放
+        if maxRowId < startRowId {
+            logger.notice("deveco event 表 rowid 回退（maxRowId=\(maxRowId, privacy: .public) < devecoLastProcessedRowId=\(startRowId, privacy: .public)），重置检查点")
+            resetState()
+            startRowId = devecoLastProcessedRowId
+        }
         guard maxRowId > startRowId else { return }
 
         var sessionTokens = sessionTokenCache

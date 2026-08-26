@@ -1,6 +1,6 @@
 import Foundation
 
-struct SessionDelta: Equatable {
+struct SessionDelta: Codable, Equatable {
     var tokens: TokenData
     var cost: Double
     var summary: SummaryData

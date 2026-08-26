@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 
 class CostViewModel: ObservableObject {
     @Published var summary: CostSummary?
@@ -37,6 +38,8 @@ class CostViewModel: ObservableObject {
     @Published var dshLevel: DshDetailLevel = .full
 
     private var hasInitialized = false
+
+    private let logger = Logger(subsystem: "com.luoyun.tokencheck", category: "cost-load")
 
     private let defaults = UserDefaults.standard
     private static let showRollbackKey = "cost_showRollback"
@@ -166,15 +169,20 @@ class CostViewModel: ObservableObject {
 
     /// opencode 费用分解（含回滚调整；失败抛错）
     private func fetchOpencodeData() throws -> OpencodeCostData {
+        var t = CFAbsoluteTimeGetCurrent()
         if let ds = DatabaseService.shared, let db = ds.db {
             TokenDeltaTracker.shared.refresh(db: db)
         }
+        let tDelta = (CFAbsoluteTimeGetCurrent() - t) * 1000
+        t = CFAbsoluteTimeGetCurrent()
         guard let service = DatabaseService.shared else { throw DatabaseError.cannotOpen("") }
         let pricingRules = ModelPricingStore.load()
         let rb: RollbackRecord
         let modelRb: [String: TokenData]
         let breakdown: [ModelCostBreakdown]
         let periods = try service.fetchAvailablePeriods()
+        let tPeriods = (CFAbsoluteTimeGetCurrent() - t) * 1000
+        t = CFAbsoluteTimeGetCurrent()
         let referenceDate: Date
 
         if filterMode == .range {
@@ -199,6 +207,7 @@ class CostViewModel: ObservableObject {
                 referenceDate: referenceDate
             )
         }
+        logger.notice("cost-load fetchOpencodeData: tracker=\(String(format: "%.1f", tDelta), privacy: .public)ms, periods=\(String(format: "%.1f", tPeriods), privacy: .public)ms, breakdown=\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t) * 1000), privacy: .public)ms, models=\(breakdown.count, privacy: .public)")
 
         let breakdownFiltered = breakdown
             .filter { $0.pricing.isEnabled }
@@ -283,11 +292,15 @@ class CostViewModel: ObservableObject {
     // MARK: - opencode 数据源
 
     private func loadOpencode() {
+        let submittedAt = CFAbsoluteTimeGetCurrent()
         DatabaseService.loadQueue.addOperation { [weak self] in
             guard let self else { return }
+            let startedAt = CFAbsoluteTimeGetCurrent()
+            self.logger.notice("cost-load loadOpencode 开始（排队 \(String(format: "%.0f", (startedAt - submittedAt) * 1000), privacy: .public)ms）")
             self.selectInitialDayIfNeeded()
             do {
                 let data = try self.fetchOpencodeData()
+                let loadMs = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000
                 DispatchQueue.main.async {
                     self.periods = data.periods
                     self.summary = CostSummary.from(breakdown: data.breakdown)
@@ -297,6 +310,7 @@ class CostViewModel: ObservableObject {
                     self.hasRollback = data.hasRollback
                     self.rollbackTotal = data.rollbackTotal
                     self.isLoading = false
+                    self.logger.notice("cost-load loadOpencode 完成（数据加载 \(String(format: "%.0f", loadMs), privacy: .public)ms）")
                 }
             } catch {
                 DispatchQueue.main.async {
