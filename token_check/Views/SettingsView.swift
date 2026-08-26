@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var pricingError: String?
     @State private var isLoadingPricing = false
     @State private var suppressNextPricingSave = false
+    @State private var showHiddenPricingRules = false
 
     @State private var diskUsage: DiskUsage?
     @State private var isLoadingDisk = false
@@ -131,9 +132,9 @@ struct SettingsView: View {
                         }
 
                         VStack(spacing: 0) {
-                            ForEach(Array($pricingRules.enumerated()), id: \.element.id) { index, $rule in
-                                PricingRuleSection(rule: $rule)
-                                if index < pricingRules.count - 1 {
+                            ForEach(visiblePricingRuleIndices, id: \.self) { index in
+                                PricingRuleSection(rule: $pricingRules[index])
+                                if index != visiblePricingRuleIndices.last {
                                     Divider()
                                 }
                             }
@@ -146,6 +147,44 @@ struct SettingsView: View {
                             RoundedRectangle(cornerRadius: theme.radiusSmall)
                                 .stroke(.separator.opacity(0.2), lineWidth: 1)
                         )
+
+                        if !hiddenPricingRuleIndices.isEmpty {
+                            DisclosureGroup(isExpanded: $showHiddenPricingRules) {
+                                VStack(spacing: 0) {
+                                    ForEach(hiddenPricingRuleIndices, id: \.self) { index in
+                                        HStack(spacing: 8) {
+                                            Text(pricingRules[index].displayName)
+                                                .font(.caption.weight(.medium))
+                                            Spacer()
+                                            if !pricingRules[index].usesDefaultPricing {
+                                                Text("已自定义")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.blue)
+                                            }
+                                            Button {
+                                                pricingRules[index].isHidden = false
+                                            } label: {
+                                                Image(systemName: "eye")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("恢复显示")
+                                        }
+                                        .padding(.vertical, 6)
+                                        .padding(.horizontal, 8)
+                                        if index != hiddenPricingRuleIndices.last {
+                                            Divider()
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Text("已隐藏的模型 (\(hiddenPricingRuleIndices.count))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.top, 4)
+                        }
                     }
                 }
             } header: {
@@ -661,6 +700,15 @@ struct SettingsView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.blue)
                         }
+                        Button {
+                            rule.isHidden = true
+                        } label: {
+                            Image(systemName: "eye.slash")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("隐藏该模型")
                     }
                     .contentShape(Rectangle())
                 }
@@ -1059,10 +1107,19 @@ struct SettingsView: View {
         ModelPricingStore.save(pricingRules)
     }
 
+    private var visiblePricingRuleIndices: [Int] {
+        pricingRules.indices.filter { !pricingRules[$0].isHidden }
+    }
+
+    private var hiddenPricingRuleIndices: [Int] {
+        pricingRules.indices.filter { pricingRules[$0].isHidden }
+    }
+
     private func resetAllPricing() {
         pricingRules = pricingRules.map {
             var rule = ModelPricingRule.defaults(providerID: $0.providerID, modelId: $0.modelId, variant: $0.variant)
             rule.isEnabled = $0.isEnabled
+            rule.isHidden = $0.isHidden
             return rule
         }
     }
