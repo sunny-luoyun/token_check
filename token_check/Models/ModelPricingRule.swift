@@ -93,6 +93,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
     let modelId: String
     let variant: String
     var isEnabled: Bool = true
+    var isHidden: Bool = false
     var periods: [PricingPeriod]
 
     var id: String { pricingKey }
@@ -140,6 +141,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         case modelId
         case variant
         case isEnabled
+        case isHidden
         case inputMissPricePerMillion
         case cacheHitPricePerMillion
         case outputPricePerMillion
@@ -152,12 +154,14 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         modelId: String,
         variant: String,
         isEnabled: Bool = true,
+        isHidden: Bool = false,
         periods: [PricingPeriod]
     ) {
         self.providerID = providerID
         self.modelId = modelId
         self.variant = variant
         self.isEnabled = isEnabled
+        self.isHidden = isHidden
         self.periods = periods
     }
 
@@ -167,6 +171,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         modelId = try container.decode(String.self, forKey: .modelId)
         variant = try container.decode(String.self, forKey: .variant)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        isHidden = try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
 
         if let periods = try container.decodeIfPresent([PricingPeriod].self, forKey: .periods), !periods.isEmpty {
             self.periods = Self.migrateTimeWindows(in: periods)
@@ -213,6 +218,7 @@ struct ModelPricingRule: Codable, Identifiable, Hashable {
         try container.encode(modelId, forKey: .modelId)
         try container.encode(variant, forKey: .variant)
         try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(isHidden, forKey: .isHidden)
         try container.encode(periods, forKey: .periods)
         if let first = periods.first {
             try container.encode(first.inputMissPricePerMillion, forKey: .inputMissPricePerMillion)
