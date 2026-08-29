@@ -1,8 +1,10 @@
 import Foundation
 
 enum AppDatabase {
-    /// 真实用户主目录：沙盒内 `homeDirectoryForCurrentUser` 返回容器路径（~/Library/Containers/<id>/Data），
-    /// 无法命中 temporary-exception 只读例外，需用 getpwuid 取真实用户目录
+    /// 真实用户主目录：主 App 未启用 App Sandbox（见 entitlements，仅有 App Group），
+    /// `homeDirectoryForCurrentUser` 通常返回真实主目录；但为防御未来启用沙盒后
+    /// 返回容器路径（~/Library/Containers/<id>/Data）导致读不到数据库，
+    /// 统一用 getpwuid 取真实用户目录
     private static let realHome: String = {
         if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
             return String(cString: dir)

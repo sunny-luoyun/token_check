@@ -4,6 +4,8 @@ import Combine
 struct SettingsView: View {
     @AppStorage("showDockIcon") private var showDockIcon = true
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    // 注意：API Key 明文存 UserDefaults 是个人工具的已知取舍——
+    // 单用户设备 + widget 需跨进程读取，未迁 Keychain（如需分发再迁移）
     @AppStorage("deepseekApiKey") private var deepseekApiKey = ""
     @State private var pricingRules: [ModelPricingRule] = []
     @State private var pricingError: String?
@@ -24,6 +26,7 @@ struct SettingsView: View {
     @AppStorage("subscriptionPeriodStart", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionPeriodStart = 0.0
     @AppStorage("subscriptionPeriodDurationDays", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionPeriodDurationDays = 30
     @AppStorage("subscriptionBudget", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionBudget = 60.0
+    // 同上：明文存储为已知取舍（个人工具 + widget 跨进程读取）
     @AppStorage("opencodeApiKey", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var opencodeApiKey = ""
     @AppStorage("subscriptionTier", store: UserDefaults(suiteName: "group.com.luoyun.tokencheck")) private var subscriptionTier = 60.0
 

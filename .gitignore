@@ -18,13 +18,15 @@ Package.resolved
 # CocoaPods
 Pods/
 
-# Go 页面监控（config 含邮件授权码，state 为本地状态）
+# Go 页面监控（config 含邮件授权码，state/history 为本地运行时数据）
 go-page-monitor/config.json
 go-page-monitor/state.json
 go-page-monitor/logs/
+go-page-monitor/history.log
 
 # opencode 内部状态/计划目录
 .omo/
+.opencode/
 
 # Git worktrees
 .worktrees/
