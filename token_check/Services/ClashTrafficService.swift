@@ -40,7 +40,7 @@ final class ClashTrafficService {
     }()
 
     /// 拉取订阅流量并写入 App Group。返回是否成功（含 subscription-userinfo 头并解析出总量）。
-    func fetchAndWriteTrafficData() -> Bool {
+    func fetchAndWriteTrafficData() async -> Bool {
         guard let sub = readSubscriptionURL() else {
             logger.debug("未找到 Clash 订阅 URL")
             return false
@@ -53,28 +53,26 @@ final class ClashTrafficService {
             return false
         }
 
-        var request = URLRequest(url: url)
-        request.setValue("ClashMeta/1.18", forHTTPHeaderField: "User-Agent")
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var userInfoHeader: String?
-
-        let task = session.dataTask(with: request) { _, response, error in
-            if let error {
-                self.logger.error("请求订阅失败: \(error.localizedDescription)")
-            } else if let httpResponse = response as? HTTPURLResponse {
-                if let value = httpResponse.allHeaderFields["Subscription-Userinfo"] as? String {
-                    userInfoHeader = value
-                } else if let value = httpResponse.allHeaderFields["subscription-userinfo"] as? String {
-                    userInfoHeader = value
-                } else {
-                    self.logger.error("响应中未找到 subscription-userinfo 头，所有 headers: \(httpResponse.allHeaderFields)")
-                }
-            }
-            semaphore.signal()
+        // User-Agent 已在 session config 中统一设置
+        guard let (_, response) = try? await session.data(for: URLRequest(url: url)) else {
+            logger.error("请求订阅失败（网络异常或超时）")
+            return false
         }
-        task.resume()
-        _ = semaphore.wait(timeout: .now() + 15)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            logger.error("响应类型异常")
+            return false
+        }
+
+        let userInfoHeader: String?
+        if let value = httpResponse.allHeaderFields["Subscription-Userinfo"] as? String {
+            userInfoHeader = value
+        } else if let value = httpResponse.allHeaderFields["subscription-userinfo"] as? String {
+            userInfoHeader = value
+        } else {
+            logger.error("响应中未找到 subscription-userinfo 头，所有 headers: \(httpResponse.allHeaderFields)")
+            userInfoHeader = nil
+        }
 
         guard let header = userInfoHeader else {
             logger.error("获取 subscription-userinfo 失败（订阅地址不可达或代理出口异常）")

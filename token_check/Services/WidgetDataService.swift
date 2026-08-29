@@ -125,21 +125,12 @@ final class WidgetDataService {
         return URLSession(configuration: config)
     }()
 
-    func checkCloudHealth() -> Bool {
-        let url = URL(string: "https://opencode.ai/zen/go/v1/models")!
-        let semaphore = DispatchSemaphore(value: 0)
-        var healthy = false
-        let task = healthSession.dataTask(with: url) { _, response, error in
-            if error == nil,
-               let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 200 {
-                healthy = true
-            }
-            semaphore.signal()
+    func checkCloudHealth() async -> Bool {
+        guard let url = URL(string: "https://opencode.ai/zen/go/v1/models") else { return false }
+        guard let (_, response) = try? await healthSession.data(for: URLRequest(url: url)) else {
+            return false
         }
-        task.resume()
-        _ = semaphore.wait(timeout: .now() + 3)
-        return healthy
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
     func fetchTodayUsage() -> TodayUsage? {
@@ -600,11 +591,13 @@ final class WidgetDataService {
         return computeLocalUsage(defaults: defaults)
     }
 
-    /// 官方 API 用量（同步调用，后台线程执行）
+    /// 官方 API 用量（同步外壳，内部 await 网络请求；仅限后台队列调用，勿在主线程使用）。
+    /// 用 DispatchGroup 等待 async 结果：Task 在 await 期间释放协作线程，不会长时间占用线程池。
     private func computeOfficialUsage(defaults: UserDefaults, apiKey: String) -> (used: Double, budget: Double, remaining: Double, periodEnd: Double)? {
-        let semaphore = DispatchSemaphore(value: 0)
+        let group = DispatchGroup()
         var result: (used: Double, budget: Double, remaining: Double, periodEnd: Double)?
 
+        group.enter()
         Task {
             let usage = await OpenCodeUsageService.shared.fetchUsage(apiKey: apiKey)
             if let usage {
@@ -619,9 +612,10 @@ final class WidgetDataService {
                 logger.warning("官方 API 失败，fallback 到本地计算")
                 result = computeLocalUsage(defaults: defaults)
             }
-            semaphore.signal()
+            group.leave()
         }
-        _ = semaphore.wait(timeout: .now() + 15)
+        // fetchUsage 自带 10s/15s 超时且用 try? 捕获所有错误，必然返回；20s 为防御性上限
+        _ = group.wait(timeout: .now() + 20)
 
         return result
     }

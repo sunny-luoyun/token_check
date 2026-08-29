@@ -33,6 +33,8 @@ class TokenViewModel: ObservableObject {
     private var forceFullRefreshCount: Int = 0
     private var lastRefreshInterval: TimeInterval = 0
     private var lastApiKey: String = ""
+    /// 健康检查防重入标志：仅主线程读写（Timer 回调与 Task 完成回调均在主线程）
+    private var isHealthCheckInFlight = false
     private let widgetDataQueue = DispatchQueue(label: "com.luoyun.tokencheck.widget-data", qos: .utility)
 
     init() {
@@ -110,8 +112,21 @@ class TokenViewModel: ObservableObject {
         }
     }
 
+    /// 健康检查改为 async：不再阻塞主线程（原 Timer 每 5s 在主线程同步等待网络最多 3s）。
+    /// 用 isHealthCheckInFlight 防重入——async 后请求周期可能超过 5s 的 Timer 间隔。
     private func checkServerHealth() {
-        let connected = service.checkCloudHealth()
+        guard !isHealthCheckInFlight else { return }
+        isHealthCheckInFlight = true
+        Task { [weak self] in
+            let connected = await self?.service.checkCloudHealth() ?? false
+            DispatchQueue.main.async {
+                self?.writeServerHealth(connected)
+                self?.isHealthCheckInFlight = false
+            }
+        }
+    }
+
+    private func writeServerHealth(_ connected: Bool) {
         guard let defaults = UserDefaults(suiteName: "group.com.luoyun.tokencheck") else { return }
         defaults.set(connected, forKey: "server_connected")
         if connected != lastServerConnected {
@@ -268,7 +283,7 @@ class TokenViewModel: ObservableObject {
                 if let result {
                     self.usage = result
                 } else {
-                    self.error = "无法读取数据库"
+                    self.error = DatabaseService.initError?.localizedDescription ?? "无法读取数据库"
                 }
                 self.isLoading = false
                 if apiKey.isEmpty {
@@ -371,12 +386,15 @@ class TokenViewModel: ObservableObject {
                 self.logger.notice("widget 文件写入完成 (\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - writeStart) * 1000), privacy: .public)ms)")
                 self.reloadWidgetTimelines()
 
+                // Clash 流量拉取改独立 Task（async），不阻塞 widgetDataQueue
                 let clashService = ClashTrafficService()
-                let clashOK = clashService.fetchAndWriteTrafficData()
-                if clashOK {
-                    self.logger.notice("Clash 流量数据已更新")
-                } else {
-                    self.logger.notice("Clash 流量更新失败（订阅地址不可达）")
+                Task {
+                    let clashOK = await clashService.fetchAndWriteTrafficData()
+                    if clashOK {
+                        self.logger.notice("Clash 流量数据已更新")
+                    } else {
+                        self.logger.notice("Clash 流量更新失败（订阅地址不可达）")
+                    }
                 }
             }
             let totalElapsed = CFAbsoluteTimeGetCurrent() - t0

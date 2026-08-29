@@ -20,7 +20,23 @@ enum DatabaseError: LocalizedError {
 }
 
 final class DatabaseService {
-    static let shared = try? DatabaseService()
+    /// 初始化失败原因（shared 为 nil 时的诊断信息；正常为 nil）
+    static private(set) var initError: DatabaseError?
+
+    static let shared: DatabaseService? = {
+        do {
+            return try DatabaseService()
+        } catch let error as DatabaseError {
+            initError = error
+            Logger(subsystem: "com.luoyun.tokencheck", category: "db-service")
+                .error("DatabaseService 初始化失败: \(error.localizedDescription, privacy: .public)")
+            return nil
+        } catch {
+            Logger(subsystem: "com.luoyun.tokencheck", category: "db-service")
+                .error("DatabaseService 初始化失败: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }()
 
     static let loadQueue: OperationQueue = {
         let q = OperationQueue()
