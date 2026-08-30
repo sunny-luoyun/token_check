@@ -75,7 +75,11 @@ class TokenViewModel: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
         logger.notice("refreshTimer 已设置: interval=\(Int(interval), privacy: .public)s, fireDate=\(ISO8601DateFormatter().string(from: fireDate), privacy: .public)")
-        reloadWidgetTimelines()
+
+        // 立即检查是否需要刷新 widget（如果当前时间接近对齐时间点）
+        if isNearAlignedRefreshTime() {
+            reloadWidgetTimelines()
+        }
     }
 
     private func setupWakeNotification() {
@@ -143,7 +147,7 @@ class TokenViewModel: ObservableObject {
     }
 
     /// 检查当前时间是否接近对齐刷新时间（±threshold 秒内）
-    private func isNearAlignedRefreshTime(threshold: TimeInterval = 30) -> Bool {
+    private func isNearAlignedRefreshTime(threshold: TimeInterval = 5) -> Bool {
         let interval = Self.readRefreshInterval()
         let now = Date()
         let seconds = now.timeIntervalSince1970
