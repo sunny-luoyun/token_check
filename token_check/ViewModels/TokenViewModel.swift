@@ -36,8 +36,14 @@ class TokenViewModel: ObservableObject {
     /// 健康检查防重入标志：仅主线程读写（Timer 回调与 Task 完成回调均在主线程）
     private var isHealthCheckInFlight = false
     private let widgetDataQueue = DispatchQueue(label: "com.luoyun.tokencheck.widget-data", qos: .utility)
+    /// ReloadState 清理计数器：每 N 次 refresh 后检查一次
+    private var reloadStateCleanupCounter = 0
+    private let reloadStateCleanupInterval = 10
 
     init() {
+        // 启动时清理 ReloadState 表中的 NULL Kind 记录，防止通知中心卡顿
+        ReloadStateCleanup.cleanupTokenCheckNullKindRecords()
+
         setupPeriodicRefresh()
         setupHealthCheck()
         setupWakeNotification()
@@ -385,6 +391,13 @@ class TokenViewModel: ObservableObject {
                 try? encoded.write(to: url, options: .atomic)
                 self.logger.notice("widget 文件写入完成 (\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - writeStart) * 1000), privacy: .public)ms)")
                 self.reloadWidgetTimelines()
+
+                // 定时清理 ReloadState 表中的 NULL Kind 记录，防止通知中心卡顿
+                self.reloadStateCleanupCounter += 1
+                if self.reloadStateCleanupCounter >= self.reloadStateCleanupInterval {
+                    self.reloadStateCleanupCounter = 0
+                    ReloadStateCleanup.cleanupTokenCheckNullKindRecords()
+                }
 
                 // Clash 流量拉取改独立 Task（async），不阻塞 widgetDataQueue
                 let clashService = ClashTrafficService()
